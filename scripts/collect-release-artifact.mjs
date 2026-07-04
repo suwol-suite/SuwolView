@@ -16,7 +16,7 @@ const version = packageJson.version;
 function platformPattern(name) {
   if (!/\.zip$/i.test(name)) return false;
   if (platform === "win") return /win/i.test(name);
-  return /linux/i.test(name);
+  return /linux/i.test(name) || !/win/i.test(name);
 }
 
 const entries = await readdir(releaseDir, { withFileTypes: true });

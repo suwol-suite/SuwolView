@@ -119,7 +119,7 @@ async function listZipEntries(zipPath) {
 
 function packagePlatform(fileName) {
   if (/win/i.test(fileName)) return "win";
-  if (/linux/i.test(fileName)) return "linux";
+  if (/linux|suwol-view/i.test(fileName)) return "linux";
   return "unknown";
 }
 
