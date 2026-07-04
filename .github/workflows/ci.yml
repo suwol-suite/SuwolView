@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          if apt-cache show libasound2t64 >/dev/null 2>&1; then
+            ASOUND_PACKAGE=libasound2t64
+          else
+            ASOUND_PACKAGE=libasound2
+          fi
+          sudo apt-get install -y libgtk-3-0 libnss3 libxss1 "$ASOUND_PACKAGE" libgbm1
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Icons
+        run: npm run icons:generate
+
+      - name: Check Icons
+        run: npm run icons:check
+
+      - name: Verify
+        run: npm run verify

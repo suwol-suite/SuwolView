@@ -1,0 +1,29 @@
+{
+  "project": "SuwolView",
+  "forbiddenLicensePatterns": [
+    "\\bAGPL(?:-|\\b)",
+    "\\bGPL(?:-|\\b)",
+    "\\bSSPL(?:-|\\b)",
+    "CC-BY-NC",
+    "Non[- ]?Commercial",
+    "Commons Clause",
+    "No Redistribution",
+    "commercial use only",
+    "proprietary"
+  ],
+  "reviewRequiredLicensePatterns": [
+    "\\bLGPL(?:-|\\b)",
+    "\\bMPL(?:-|\\b)",
+    "SEE LICENSE IN"
+  ],
+  "allowedCommonLicenses": [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "Zlib",
+    "Unlicense"
+  ]
+}

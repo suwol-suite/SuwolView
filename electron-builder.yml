@@ -1,0 +1,50 @@
+appId: org.suwolview.app
+productName: SuwolView
+copyright: Copyright (c) 2026 SuwolView contributors
+icon: assets/icon
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+  - LICENSE
+  - NOTICE
+  - THIRD_PARTY_LICENSES.md
+  - README.md
+  - docs/**
+
+extraResources:
+  - from: LICENSE
+    to: LICENSE
+  - from: NOTICE
+    to: NOTICE
+  - from: THIRD_PARTY_LICENSES.md
+    to: THIRD_PARTY_LICENSES.md
+  - from: README.md
+    to: README.md
+  - from: docs
+    to: docs
+
+asar: true
+asarUnpack:
+  - node_modules/sharp/**
+  - node_modules/@img/**
+
+win:
+  icon: assets/icon.ico
+  target:
+    - target: zip
+      arch:
+        - x64
+
+linux:
+  category: Graphics
+  icon: assets/icon.png
+  target:
+    - target: zip
+      arch:
+        - x64

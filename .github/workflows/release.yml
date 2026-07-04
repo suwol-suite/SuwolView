@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            package_script: dist:win:zip
+          - os: ubuntu-latest
+            platform: linux
+            package_script: dist:linux:zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          if apt-cache show libasound2t64 >/dev/null 2>&1; then
+            ASOUND_PACKAGE=libasound2t64
+          else
+            ASOUND_PACKAGE=libasound2
+          fi
+          sudo apt-get install -y libgtk-3-0 libnss3 libxss1 "$ASOUND_PACKAGE" libgbm1
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Icons
+        run: npm run icons:generate
+
+      - name: Verify
+        run: npm run verify
+
+      - name: Package
+        run: npm run ${{ matrix.package_script }}
+
+      - name: Collect release artifact
+        run: node scripts/collect-release-artifact.mjs ${{ matrix.platform }}
+
+      - name: Package Smoke Test
+        run: npm run package:smoke
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: suwolview-${{ matrix.platform }}-x64
+          path: release-artifacts/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-downloads
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          cd release-downloads
+          sha256sum *.zip > SHA256SUMS.txt
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          SuwolView 0.1.0
+
+          Initial public MVP release.
+
+          Features:
+          - Open image files and folders
+          - Previous/next navigation
+          - Zoom, pan, fit window, fit width, original size
+          - Rotate and flip
+          - Thumbnail sidebar
+          - Dark/light theme
+          - Recent files
+          - Keyboard shortcuts
+          - ZIP/CBZ viewing
+          - Webtoon vertical scroll mode
+          - Image information and EXIF panel
+
+          Formats:
+          - Native: jpg, jpeg, png, gif, webp, avif, bmp, ico, svg
+          - Converted: tif, tiff
+          - Container: zip, cbz
+
+          Notes:
+          - Windows package has been locally verified.
+          - Linux package is built by GitHub Actions.
+          - macOS package is not included in this release.
+          - This is an independent free open-source project.
+          - Donations are optional and do not unlock or restrict features.
+          EOF
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" release-downloads/*.zip release-downloads/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG_NAME" release-downloads/*.zip release-downloads/SHA256SUMS.txt \
+              --title "SuwolView ${TAG_NAME#v}" \
+              --notes-file release-notes.md
+          fi
