@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol } from "electron";
 import type { OpenDialogOptions, OpenDialogReturnValue } from "electron";
-import { readFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type { Preferences, ThemeMode } from "../shared/types";
@@ -164,12 +164,31 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager): 
   });
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function ensureLegalFilesPresent(): Promise<void> {
-  await Promise.all([
-    readFile(path.join(app.getAppPath(), "LICENSE"), "utf8"),
-    readFile(path.join(app.getAppPath(), "NOTICE"), "utf8"),
-    readFile(path.join(app.getAppPath(), "THIRD_PARTY_LICENSES.md"), "utf8")
-  ]);
+  const searchRoots = [app.getAppPath(), process.resourcesPath, path.dirname(app.getPath("exe"))];
+  const requiredFiles = ["LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md"];
+  const missingFiles: string[] = [];
+
+  for (const fileName of requiredFiles) {
+    const foundInRoots = await Promise.all(searchRoots.map((rootPath) => fileExists(path.join(rootPath, fileName))));
+    const found = foundInRoots.some(Boolean);
+    if (!found) {
+      missingFiles.push(fileName);
+    }
+  }
+
+  if (missingFiles.length > 0) {
+    console.warn(`SuwolView package notice: missing legal files: ${missingFiles.join(", ")}`);
+  }
 }
 
 void app.whenReady().then(async () => {
