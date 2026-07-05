@@ -1,9 +1,9 @@
 {
   "name": "suwol-view",
   "productName": "SuwolView",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Free open-source cross-platform image, comic, webtoon, and metadata viewer.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "SuwolView contributors",
   "private": true,
   "engines": {
@@ -23,6 +23,7 @@
     "assets:icons": "npm run icons:generate",
     "icons:generate": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/check-icons.mjs",
+    "i18n:check": "node scripts/check-i18n.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
@@ -36,13 +37,15 @@
     "release:collect": "node scripts/collect-release-artifact.mjs",
     "license:check": "node scripts/check-licenses.mjs",
     "package:smoke": "node scripts/package-smoke-test.mjs",
-    "verify": "npm run icons:check && npm run typecheck && npm run lint && npm run test && npm run build && npm run license:check && npm run package:smoke"
+    "verify": "npm run icons:check && npm run i18n:check && npm run typecheck && npm run lint && npm run test && npm run build && npm run license:check && npm run package:smoke"
   },
   "dependencies": {
     "exifr": "7.1.3",
+    "i18next": "26.3.4",
     "lucide-react": "1.23.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
+    "react-i18next": "17.0.8",
     "sharp": "0.35.3",
     "yauzl": "3.4.0"
   },

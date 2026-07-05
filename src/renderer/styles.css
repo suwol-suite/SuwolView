@@ -51,6 +51,8 @@ body {
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 button,
@@ -63,14 +65,23 @@ button {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
-  grid-template-rows: 54px minmax(0, 1fr) 32px;
+  grid-template-rows: minmax(0, 1fr);
   width: 100%;
   height: 100%;
+  overflow: hidden;
   background: var(--bg);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .top-bar {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -79,6 +90,41 @@ button {
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
+}
+
+.chrome-bar {
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.chrome-bar.auto {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chrome-bar.auto.visible,
+.chrome-bar.always {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chrome-top.auto {
+  transform: translateY(-100%);
+}
+
+.chrome-top.auto.visible,
+.chrome-top.always {
+  transform: translateY(0);
+}
+
+.chrome-bottom.auto {
+  transform: translateY(100%);
+}
+
+.chrome-bottom.auto.visible,
+.chrome-bottom.always {
+  transform: translateY(0);
 }
 
 .toolbar-group {
@@ -118,6 +164,12 @@ button {
   padding: 0;
 }
 
+.icon-button.active {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  background: color-mix(in srgb, var(--accent) 18%, var(--button));
+  color: var(--accent-strong);
+}
+
 .command-button:hover:not(:disabled),
 .icon-button:hover:not(:disabled),
 .select-control:hover {
@@ -139,22 +191,19 @@ button {
   max-width: 170px;
 }
 
+.language-select {
+  min-width: 132px;
+  max-width: 168px;
+}
+
 .workspace {
   display: grid;
-  grid-template-columns: 184px minmax(0, 1fr) 280px;
   min-height: 0;
+  transition: padding 160ms ease;
 }
 
-.workspace.hide-thumbnails {
-  grid-template-columns: minmax(0, 1fr) 280px;
-}
-
-.workspace.hide-info {
-  grid-template-columns: 184px minmax(0, 1fr);
-}
-
-.workspace.hide-thumbnails.hide-info {
-  grid-template-columns: minmax(0, 1fr);
+.top-bar-always .workspace {
+  padding-top: 54px;
 }
 
 .thumbnail-panel,
@@ -206,6 +255,9 @@ button {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
 }
 
 .thumbnail-name {
@@ -240,6 +292,8 @@ button {
   max-height: none;
   transform-origin: center center;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
   will-change: transform;
   box-shadow: 0 18px 50px var(--shadow);
 }
@@ -260,6 +314,9 @@ button {
   height: auto;
   margin: 0 auto;
   background: #000;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
   box-shadow: 0 10px 32px var(--shadow);
 }
 
@@ -275,6 +332,15 @@ button {
   color: var(--muted);
   font-size: 18px;
   font-weight: 650;
+  text-align: center;
+}
+
+.empty-hint {
+  max-width: min(460px, calc(100vw - 48px));
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1.45;
 }
 
 .toast {
@@ -297,6 +363,27 @@ button {
   border-left: 1px solid var(--line);
 }
 
+.panel-splitter {
+  min-width: 6px;
+  height: 100%;
+  border: 0;
+  background:
+    linear-gradient(to right, transparent 0 2px, var(--line) 2px 3px, transparent 3px 6px);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.panel-splitter:hover,
+.workspace.resizing-panel .panel-splitter {
+  background:
+    linear-gradient(to right, transparent 0 2px, var(--accent) 2px 4px, transparent 4px 6px);
+}
+
+body.is-resizing-panel {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .panel-title {
   display: flex;
   align-items: center;
@@ -310,6 +397,52 @@ button {
 .metadata-content {
   display: grid;
   gap: 4px;
+}
+
+.settings-content {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.panel-command-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--button);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.panel-command-button:hover {
+  background: var(--button-hover);
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
 }
 
 .info-row {
@@ -351,6 +484,11 @@ button {
 }
 
 .status-bar {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   align-items: center;
@@ -372,7 +510,7 @@ button {
 
 @media (max-width: 1120px) {
   .app-shell {
-    grid-template-rows: auto minmax(0, 1fr) 32px;
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .top-bar {
@@ -380,16 +518,21 @@ button {
     height: auto;
   }
 
-  .workspace,
-  .workspace.hide-info,
-  .workspace.hide-thumbnails,
-  .workspace.hide-thumbnails.hide-info {
-    grid-template-columns: minmax(0, 1fr);
+  .top-bar-always .workspace {
+    padding-top: 88px;
   }
 
-  .thumbnail-panel,
-  .info-panel {
-    display: none;
+  .thumbnail-panel {
+    padding: 8px;
+  }
+
+  .thumbnail-item {
+    grid-template-rows: 96px 32px;
+    min-height: 140px;
+  }
+
+  .thumbnail-frame {
+    height: 96px;
   }
 
   .command-button {

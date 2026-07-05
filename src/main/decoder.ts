@@ -2,15 +2,56 @@ import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { getImageSupport } from "../shared/formats";
-import type { ImageMetadata } from "../shared/types";
+import type { AppResult, ImageMetadata } from "../shared/types";
 import { extractZipEntry } from "./archive";
 import type { InternalLibraryItem, MetadataWorkerRequest, ResolvedImageFile, ThumbnailWorkerRequest } from "./libraryTypes";
+import {
+  classifyMetadataFailure,
+  failedResult,
+  MetadataFailureCache,
+  metadataTooLargeFailure,
+  METADATA_MAX_JSON_LENGTH,
+  METADATA_MAX_TEXT_LENGTH,
+  METADATA_TIMEOUT_MS,
+  METADATA_WORKER_RESOURCE_LIMITS,
+  shouldSkipMetadataBySize
+} from "./metadataSafety";
 import { electronWorkerPath, runWorker } from "./workerRunner";
 import type { CachePaths } from "./cache";
 
+class TaskQueue {
+  private active = 0;
+  private readonly pending: Array<() => void> = [];
+
+  constructor(private readonly concurrency: number) {}
+
+  run<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const runTask = () => {
+        this.active += 1;
+        task()
+          .then(resolve, reject)
+          .finally(() => {
+            this.active -= 1;
+            this.pending.shift()?.();
+          });
+      };
+
+      if (this.active < this.concurrency) {
+        runTask();
+      } else {
+        this.pending.push(runTask);
+      }
+    });
+  }
+}
+
 export class DecoderLayer {
   private readonly metadataCache = new Map<string, ImageMetadata>();
+  private readonly metadataFailureCache = new MetadataFailureCache();
   private readonly inFlightThumbnails = new Map<string, Promise<ResolvedImageFile>>();
+  private readonly metadataQueue = new TaskQueue(1);
+  private readonly thumbnailQueue = new TaskQueue(2);
 
   constructor(private readonly cache: CachePaths) {}
 
@@ -50,25 +91,61 @@ export class DecoderLayer {
     return promise;
   }
 
-  async readMetadata(item: InternalLibraryItem): Promise<ImageMetadata> {
-    const cached = this.metadataCache.get(`${item.id}:${item.cacheKey}`);
-    if (cached) return cached;
+  async readMetadata(item: InternalLibraryItem): Promise<AppResult<ImageMetadata>> {
+    const cacheKey = `${item.id}:${item.cacheKey}`;
+    const cached = this.metadataCache.get(cacheKey);
+    if (cached) return { ok: true, data: cached };
 
-    const originalPath = await this.resolveOriginalFile(item);
-    const data = await runWorker<MetadataWorkerRequest, ImageMetadata>(electronWorkerPath("metadataWorker.cjs"), {
-      inputPath: originalPath
-    });
-    this.metadataCache.set(`${item.id}:${item.cacheKey}`, data);
-    return data;
+    const cachedFailure = this.metadataFailureCache.get(cacheKey);
+    if (cachedFailure) return cachedFailure;
+
+    if (shouldSkipMetadataBySize(item.sizeBytes)) {
+      const failure = metadataTooLargeFailure(item.sizeBytes);
+      this.metadataFailureCache.set(cacheKey, failure);
+      return failedResult(failure);
+    }
+
+    try {
+      const originalPath = await this.resolveOriginalFile(item);
+      const originalStat = await stat(originalPath);
+      if (shouldSkipMetadataBySize(originalStat.size)) {
+        const failure = metadataTooLargeFailure(originalStat.size);
+        this.metadataFailureCache.set(cacheKey, failure);
+        return failedResult(failure);
+      }
+
+      const data = await this.metadataQueue.run(() =>
+        runWorker<MetadataWorkerRequest, ImageMetadata>(
+          electronWorkerPath("metadataWorker.cjs"),
+          {
+            inputPath: originalPath,
+            maxTextLength: METADATA_MAX_TEXT_LENGTH,
+            maxJsonLength: METADATA_MAX_JSON_LENGTH
+          },
+          {
+            resourceLimits: METADATA_WORKER_RESOURCE_LIMITS,
+            timeoutMs: METADATA_TIMEOUT_MS
+          }
+        )
+      );
+      this.metadataCache.set(cacheKey, data);
+      return { ok: true, data };
+    } catch (error) {
+      const failure = classifyMetadataFailure(error);
+      this.metadataFailureCache.set(cacheKey, failure);
+      return failedResult(failure);
+    }
   }
 
   private async createThumbnail(item: InternalLibraryItem, thumbnailPath: string): Promise<ResolvedImageFile> {
     const originalPath = await this.resolveOriginalFile(item);
-    await runWorker<ThumbnailWorkerRequest, void>(electronWorkerPath("thumbnailWorker.cjs"), {
-      inputPath: originalPath,
-      outputPath: thumbnailPath,
-      size: 220
-    });
+    await this.thumbnailQueue.run(() =>
+      runWorker<ThumbnailWorkerRequest, void>(electronWorkerPath("thumbnailWorker.cjs"), {
+        inputPath: originalPath,
+        outputPath: thumbnailPath,
+        size: 220
+      })
+    );
     return { path: thumbnailPath, mimeType: "image/webp" };
   }
 

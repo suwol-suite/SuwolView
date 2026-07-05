@@ -28,6 +28,8 @@ export interface ThumbnailWorkerRequest {
 
 export interface MetadataWorkerRequest {
   inputPath: string;
+  maxTextLength: number;
+  maxJsonLength: number;
 }
 
 export type MetadataWorkerResult = ImageMetadata;

@@ -1,0 +1,157 @@
+{
+  "app": {
+    "name": "SuwolView"
+  },
+  "menu": {
+    "file": "File",
+    "view": "View"
+  },
+  "common": {
+    "unknown": "Unknown",
+    "working": "Working",
+    "noFile": "No file",
+    "noFileSelected": "No file selected"
+  },
+  "toolbar": {
+    "openFile": "Open File",
+    "openFolder": "Open Folder",
+    "recent": "Recent",
+    "zoomOut": "Zoom Out",
+    "zoomIn": "Zoom In",
+    "fitWindow": "Fit Window",
+    "fitWidth": "Fit Width",
+    "webtoonScroll": "Webtoon Scroll",
+    "rotate": "Rotate",
+    "flipHorizontal": "Flip Horizontal",
+    "toggleFullscreen": "Toggle fullscreen",
+    "exitFullscreen": "Exit fullscreen",
+    "thumbnails": "Thumbnails",
+    "info": "Info",
+    "theme": "Theme"
+  },
+  "viewer": {
+    "singleImage": "Single Image",
+    "fitWindow": "Fit Window",
+    "fitWidth": "Fit Width",
+    "originalSize": "Original Size",
+    "webtoonScroll": "Webtoon Scroll",
+    "comicPage": "Comic Page",
+    "emptyTitle": "SuwolView",
+    "topBarAutoHint": "Move the mouse to the top edge to show the toolbar.",
+    "bottomBarAutoHint": "Move the mouse to the bottom edge to show the status bar."
+  },
+  "sidebar": {
+    "thumbnails": "Thumbnails"
+  },
+  "metadata": {
+    "info": "Info",
+    "file": "File",
+    "container": "Container",
+    "format": "Format",
+    "support": "Support",
+    "size": "Size",
+    "modified": "Modified",
+    "width": "Width",
+    "height": "Height",
+    "color": "Color",
+    "pages": "Pages",
+    "readingMetadata": "Reading metadata",
+    "exif": "EXIF",
+    "aiMetadata": "AI metadata"
+  },
+  "cache": {
+    "settings": "Cache settings"
+  },
+  "settings": {
+    "language": "Language",
+    "systemDefault": "System default",
+    "theme": "Theme",
+    "version": "Version {{version}}",
+    "safeModeActive": "Safe mode is active.",
+    "fileAssociations": "File associations",
+    "launchArgumentNote": "SuwolView can open image files, folders, and ZIP/CBZ archives from launch arguments.",
+    "openWindowsDefaultApps": "Open Windows Default Apps",
+    "openReleases": "Open Releases",
+    "copyExecutablePath": "Copy executable path",
+    "executablePathCopied": "Executable path copied.",
+    "portableAssociationNote": "The portable ZIP build does not automatically register file associations.",
+    "installerAssociationNote": "Use the Windows installer or choose SuwolView in Windows Default Apps.",
+    "viewLayout": "View layout",
+    "autoHideTopBar": "Auto-hide top toolbar",
+    "bottomBarFollowsChrome": "The bottom status bar appears with the toolbar or side panels.",
+    "alwaysShowTopBar": "Always show top toolbar",
+    "alwaysShowBottomBar": "Always show bottom status bar",
+    "immersiveDefaultNote": "By default, SuwolView keeps controls hidden until you move the mouse to the screen edge.",
+    "panelLayout": "Panel layout",
+    "showLeftPanelByDefault": "Show left panel",
+    "showRightPanelByDefault": "Show right panel",
+    "resetPanelSizes": "Reset panel sizes",
+    "resizeLeftPanel": "Resize left panel",
+    "resizeRightPanel": "Resize right panel",
+    "maintenance": "Maintenance",
+    "openLogsFolder": "Open logs folder",
+    "resetSettings": "Reset settings",
+    "settingsReset": "Settings reset.",
+    "clearThumbnailCache": "Clear thumbnail cache",
+    "thumbnailCacheCleared": "Thumbnail cache cleared.",
+    "restartInSafeMode": "Restart in safe mode",
+    "safeModeNote": "Safe mode starts with default layout settings and skips launch-item auto open.",
+    "logsPrivacyNote": "Logs can include local file paths, but not image file contents or raw metadata."
+  },
+  "about": {
+    "title": "About SuwolView",
+    "releaseNotes": "Release notes",
+    "issues": "Issues",
+    "supportDevelopment": "Support development"
+  },
+  "errors": {
+    "unexpected": "Unexpected error",
+    "actionFailed": "The action failed",
+    "decodeFailed": "Unable to decode this image",
+    "metadataFailed": "Unable to read metadata",
+    "metadataWorkerOutOfMemory": "Metadata reading was skipped because it used too much memory.",
+    "metadataSkippedTooLarge": "Metadata reading was skipped because the file is too large.",
+    "metadataTimeout": "Metadata reading timed out.",
+    "recentSourceNotFound": "Recent source was not found",
+    "invalidTheme": "Invalid theme setting",
+    "invalidLanguage": "Invalid language setting",
+    "imageNotFound": "Image not found",
+    "unknownImageRequest": "Unknown image request",
+    "unableToLoadImage": "Unable to load image",
+    "languageChangeFailed": "Unable to change language",
+    "zipOpenFailed": "Unable to open ZIP or CBZ archive",
+    "experimentalFormat": "This format is experimental",
+    "dropOpenFailed": "Failed to open dropped item.",
+    "dropUnsupported": "This dropped item is not supported.",
+    "openArgumentFailed": "Failed to open launch item.",
+    "unsupportedLaunchItem": "This launch item is not supported.",
+    "systemSettingsOpenFailed": "Failed to open system settings.",
+    "fullscreenFailed": "Failed to change fullscreen state.",
+    "logsOpenFailed": "Failed to open logs folder.",
+    "cacheClearFailed": "Failed to clear thumbnail cache."
+  },
+  "formats": {
+    "native": "Native",
+    "converted": "Converted",
+    "experimental": "Experimental",
+    "external": "External",
+    "container": "Container",
+    "supportedFiles": "SuwolView supported files"
+  },
+  "shortcuts": {
+    "previous": "Previous image",
+    "next": "Next image",
+    "openFile": "Open file",
+    "openFolder": "Open folder",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "toggleThumbnails": "Toggle thumbnails",
+    "toggleInfo": "Toggle info",
+    "toggleInfoPanel": "Toggle information panel",
+    "toggleFullscreen": "Toggle fullscreen"
+  },
+  "languages": {
+    "ko": "Korean",
+    "en": "English"
+  }
+}

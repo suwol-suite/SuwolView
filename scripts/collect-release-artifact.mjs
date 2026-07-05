@@ -13,7 +13,7 @@ const outputDir = path.join(root, "release-artifacts");
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const version = packageJson.version;
 
-function platformPattern(name) {
+function zipPlatformPattern(name) {
   if (!/\.zip$/i.test(name)) return false;
   if (platform === "win") return /win/i.test(name);
   return /linux/i.test(name) || !/win/i.test(name);
@@ -22,7 +22,7 @@ function platformPattern(name) {
 const entries = await readdir(releaseDir, { withFileTypes: true });
 const candidates = [];
 for (const entry of entries) {
-  if (!entry.isFile() || !platformPattern(entry.name)) continue;
+  if (!entry.isFile() || !zipPlatformPattern(entry.name)) continue;
   const fullPath = path.join(releaseDir, entry.name);
   candidates.push({ fullPath, stats: await stat(fullPath) });
 }
@@ -41,3 +41,16 @@ const outputPath = path.join(outputDir, outputName);
 await copyFile(candidates[0].fullPath, outputPath);
 
 console.log(`Collected ${path.relative(root, outputPath)}.`);
+
+if (platform === "win") {
+  const installerName = `SuwolView-${version}-setup.exe`;
+  const installerPath = path.join(releaseDir, installerName);
+  const installerStats = await stat(installerPath).catch(() => undefined);
+  if (!installerStats?.isFile()) {
+    console.error(`No Windows NSIS installer found at release/${installerName}.`);
+    process.exit(1);
+  }
+  const installerOutputPath = path.join(outputDir, installerName);
+  await copyFile(installerPath, installerOutputPath);
+  console.log(`Collected ${path.relative(root, installerOutputPath)}.`);
+}

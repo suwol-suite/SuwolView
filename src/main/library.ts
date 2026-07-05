@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { listZipImageEntries } from "./archive";
 import type { DecoderLayer } from "./decoder";
 import { getImageSupport, isArchive, isSupportedImage, normalizeExtension, sortImageNames } from "../shared/formats";
-import type { ImageMetadata, LibraryItem, LibrarySource, OpenLibraryResult, SourceKind } from "../shared/types";
+import type { AppResult, ImageMetadata, LibraryItem, LibrarySource, OpenLibraryResult, SourceKind } from "../shared/types";
 import { stableHash } from "./hash";
 import type { InternalLibraryItem, ResolvedImageFile } from "./libraryTypes";
 
@@ -13,6 +13,8 @@ interface CurrentLibrary {
   items: InternalLibraryItem[];
   itemMap: Map<string, InternalLibraryItem>;
 }
+
+const FILE_ITEM_CONCURRENCY = 32;
 
 function imageProtocolUrl(kind: "display" | "thumbnail", itemId: string, cacheKey: string): string {
   return `suwol-image://${kind}/${encodeURIComponent(itemId)}?v=${encodeURIComponent(cacheKey)}`;
@@ -24,6 +26,28 @@ function sourceId(kind: SourceKind, sourcePath: string): string {
 
 function itemCacheKey(parts: string[]): string {
   return stableHash(parts.join(":"));
+}
+
+async function mapConcurrent<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, values.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(values[index], index);
+      }
+    })
+  );
+
+  return results;
 }
 
 export class LibraryManager {
@@ -50,6 +74,33 @@ export class LibraryManager {
     return this.openFolder(folderPath, resolvedPath, "file");
   }
 
+  async openFiles(filePaths: string[]): Promise<OpenLibraryResult> {
+    const resolvedPaths = [...new Set(filePaths.map((filePath) => path.resolve(filePath)))];
+    const imagePaths: string[] = [];
+    for (const filePath of resolvedPaths) {
+      const fileStats = await stat(filePath);
+      if (fileStats.isFile() && isSupportedImage(filePath)) {
+        imagePaths.push(filePath);
+      }
+    }
+
+    if (imagePaths.length === 0) {
+      throw new Error("No supported images were found.");
+    }
+
+    const source: LibrarySource = {
+      id: stableHash(`files:${imagePaths.join("\0")}`),
+      kind: "file",
+      name: imagePaths.length === 1 ? path.basename(imagePaths[0]) : `${imagePaths.length} dropped files`,
+      path: imagePaths[0],
+      openedAt: new Date().toISOString()
+    };
+    const items = await mapConcurrent(imagePaths, FILE_ITEM_CONCURRENCY, async (filePath, index) =>
+      this.createFileItem(source, filePath, index)
+    );
+    return this.setCurrent(source, items, 0);
+  }
+
   async openFolder(folderPath: string, selectedFilePath?: string, sourceKind: SourceKind = "folder"): Promise<OpenLibraryResult> {
     const resolvedFolderPath = path.resolve(folderPath);
     const entries = await readdir(resolvedFolderPath, { withFileTypes: true });
@@ -68,8 +119,10 @@ export class LibraryManager {
 
     const sourcePath = sourceKind === "file" && selectedFilePath ? selectedFilePath : resolvedFolderPath;
     const source = this.createSource(sourceKind, sourcePath);
-    const items = await Promise.all(
-      imagePaths.map(async (entry, index) => this.createFileItem(source, entry.fullPath, index))
+    const items = await mapConcurrent(
+      imagePaths,
+      FILE_ITEM_CONCURRENCY,
+      async (entry, index) => this.createFileItem(source, entry.fullPath, index)
     );
     const selectedIndex = selectedFilePath
       ? Math.max(0, items.findIndex((item) => item.originalPath === path.resolve(selectedFilePath)))
@@ -131,7 +184,7 @@ export class LibraryManager {
     return this.decoder.resolveThumbnailFile(this.getItem(itemId));
   }
 
-  async readMetadata(itemId: string): Promise<ImageMetadata> {
+  async readMetadata(itemId: string): Promise<AppResult<ImageMetadata>> {
     return this.decoder.readMetadata(this.getItem(itemId));
   }
 

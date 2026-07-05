@@ -23,6 +23,9 @@ Before adding a dependency:
    in the project.
 9. Update `THIRD_PARTY_LICENSES.md` for direct dependency changes.
 10. Include the review result in the pull request description.
+11. For localization packages or translation tooling, run `npm run i18n:check`
+    and confirm translation files do not introduce third-party text without a
+    license that permits redistribution in this project.
 
 LGPL and MPL dependencies require review but do not automatically fail the
 license check. GPL, AGPL, SSPL, unknown licenses, commercial-use restrictions,
@@ -41,7 +44,7 @@ decoders must use one of these paths:
 ## Asset Rules
 
 - Use original assets created for SuwolView.
-- Use third-party assets only when the license allows redistribution in an
+- Use third-party assets only when the license permits redistribution in this
   open-source desktop app.
 - Preserve required attribution.
 - Do not use assets copied from commercial viewer products.
@@ -56,3 +59,6 @@ Before publishing:
 - Confirm `LICENSE`, `NOTICE`, and `THIRD_PARTY_LICENSES.md` are included.
 - Confirm `README.md` and compliance docs are included.
 - Confirm generated release artifacts have SHA-256 checksum files.
+- Confirm the project package license is `Apache-2.0`.
+- Confirm review-required LGPL/MPL items remain documented and that blocked
+  licenses remain blocked.

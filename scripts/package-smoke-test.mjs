@@ -16,6 +16,7 @@ const requiredProjectFiles = [
   "docs/third-party-policy.md",
   "docs/lgpl-compliance.md",
   "docs/security-policy.md",
+  "docs/release-notes-0.2.0.md",
   "assets/icon.svg",
   "assets/icon.ico",
   "assets/icon.png"
@@ -29,11 +30,13 @@ const requiredPackagedResources = [
   "resources/docs/legal-policy.md",
   "resources/docs/third-party-policy.md",
   "resources/docs/lgpl-compliance.md",
-  "resources/docs/security-policy.md"
+  "resources/docs/security-policy.md",
+  "resources/docs/release-notes-0.2.0.md"
 ];
 
 const failures = [];
 const notes = [];
+let packageVersion = "";
 
 async function exists(filePath) {
   try {
@@ -52,8 +55,12 @@ for (const file of requiredProjectFiles) {
 
 try {
   const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-  if (packageJson.license !== "MIT") {
-    failures.push("package.json license must be MIT.");
+  packageVersion = typeof packageJson.version === "string" ? packageJson.version : "";
+  if (!packageVersion) {
+    failures.push("package.json version must be present.");
+  }
+  if (packageJson.license !== "Apache-2.0") {
+    failures.push("package.json license must be Apache-2.0.");
   }
   if (packageJson.main !== "dist-electron/main.cjs") {
     failures.push("package.json main must point to dist-electron/main.cjs.");
@@ -72,6 +79,7 @@ async function outputMtime() {
 
 async function checkWinUnpacked(buildMtime) {
   const resourcesDir = path.join(root, "release", "win-unpacked", "resources");
+  const executablePath = path.join(root, "release", "win-unpacked", "SuwolView.exe");
   if (!(await exists(resourcesDir))) {
     notes.push("No release/win-unpacked/resources directory found; unpacked package inspection skipped.");
     return;
@@ -81,6 +89,10 @@ async function checkWinUnpacked(buildMtime) {
   if (packageMtime < buildMtime) {
     notes.push("Existing win-unpacked package is older than the latest build; unpacked package inspection skipped.");
     return;
+  }
+
+  if (!(await exists(executablePath))) {
+    failures.push("win-unpacked package missing: SuwolView.exe");
   }
 
   for (const resource of requiredPackagedResources) {
@@ -190,10 +202,41 @@ async function checkPackagedZips(buildMtime) {
   }
 
   for (const [platform, zipFile] of platformGroups) {
+    const zipName = path.basename(zipFile.fullPath);
+    if (!zipName.includes(packageVersion)) {
+      failures.push(`${zipName} does not include package version ${packageVersion}.`);
+    }
+    if (zipFile.stats.size <= 0) {
+      failures.push(`${zipName} is empty.`);
+    }
     const zipEntries = await listZipEntries(zipFile.fullPath);
-    assertZipResources(zipEntries, platform, path.basename(zipFile.fullPath));
+    assertZipResources(zipEntries, platform, zipName);
     notes.push(`Inspected ${platform} ZIP: ${path.relative(root, zipFile.fullPath)}`);
   }
+
+  const freshWindowsZip = freshZipFiles.some((zipFile) => packagePlatform(path.basename(zipFile.fullPath)) === "win");
+  if (freshWindowsZip) {
+    await checkWindowsInstaller(buildMtime);
+  }
+}
+
+async function checkWindowsInstaller(buildMtime) {
+  const releaseDir = path.join(root, "release");
+  const expectedInstaller = path.join(releaseDir, `SuwolView-${packageVersion}-setup.exe`);
+  if (!(await exists(expectedInstaller))) {
+    failures.push(`Missing Windows NSIS installer: release/SuwolView-${packageVersion}-setup.exe`);
+    return;
+  }
+
+  const installerStats = await stat(expectedInstaller);
+  if (installerStats.mtimeMs < buildMtime) {
+    failures.push(`Windows NSIS installer is older than the latest build: ${path.relative(root, expectedInstaller)}`);
+  }
+  if (installerStats.size <= 0) {
+    failures.push(`Windows NSIS installer is empty: ${path.relative(root, expectedInstaller)}`);
+  }
+
+  notes.push(`Inspected Windows NSIS installer: ${path.relative(root, expectedInstaller)}`);
 }
 
 const buildMtime = await outputMtime();

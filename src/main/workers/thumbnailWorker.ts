@@ -4,6 +4,9 @@ import { parentPort } from "node:worker_threads";
 import sharp from "sharp";
 import type { ThumbnailWorkerRequest, WorkerResponse } from "../libraryTypes";
 
+sharp.concurrency(1);
+sharp.cache(false);
+
 async function createThumbnail(request: ThumbnailWorkerRequest): Promise<void> {
   await mkdir(path.dirname(request.outputPath), { recursive: true });
   await sharp(request.inputPath, {

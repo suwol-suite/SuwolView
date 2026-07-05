@@ -4,6 +4,9 @@ This file tracks direct runtime and build dependencies used by SuwolView.
 Run `npm run license:check` after every dependency change and update this file
 when a new direct dependency is added or removed.
 
+SuwolView project code is licensed under Apache-2.0 from the 0.2.0 release
+line. Third-party dependencies remain under their respective licenses.
+
 ## Direct Runtime Dependencies
 
 | Dependency | Purpose | License notes |
@@ -11,6 +14,8 @@ when a new direct dependency is added or removed.
 | Electron | Cross-platform desktop runtime | MIT |
 | React | Renderer UI | MIT |
 | React DOM | Renderer UI mounting | MIT |
+| i18next | Runtime translation engine | MIT |
+| react-i18next | React bindings for runtime translation | MIT |
 | lucide-react | Interface icons | ISC |
 | sharp | Image conversion and thumbnail pipeline | Apache-2.0 package; native libvips redistribution must remain documented |
 | @img/sharp-win32-x64 | Windows native sharp image pipeline package | Apache-2.0 AND LGPL-3.0-or-later; review-required |

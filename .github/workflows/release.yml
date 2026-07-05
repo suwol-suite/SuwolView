@@ -19,10 +19,8 @@ jobs:
         include:
           - os: windows-latest
             platform: win
-            package_script: dist:win:zip
           - os: ubuntu-latest
             platform: linux
-            package_script: dist:linux:zip
 
     steps:
       - name: Checkout
@@ -55,7 +53,13 @@ jobs:
         run: npm run verify
 
       - name: Package
-        run: npm run ${{ matrix.package_script }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            npm run dist -- --win zip nsis --publish never
+          else
+            npm run dist -- --linux zip --publish never
+          fi
 
       - name: Collect release artifact
         run: node scripts/collect-release-artifact.mjs ${{ matrix.platform }}
@@ -67,7 +71,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: suwolview-${{ matrix.platform }}-x64
-          path: release-artifacts/*.zip
+          path: release-artifacts/*
           if-no-files-found: error
 
   release:
@@ -89,40 +93,11 @@ jobs:
       - name: Create checksums
         run: |
           cd release-downloads
-          sha256sum *.zip > SHA256SUMS.txt
+          sha256sum SuwolView-* > SHA256SUMS.txt
 
       - name: Write release notes
         run: |
-          cat > release-notes.md <<'EOF'
-          SuwolView 0.1.0
-
-          Initial public MVP release.
-
-          Features:
-          - Open image files and folders
-          - Previous/next navigation
-          - Zoom, pan, fit window, fit width, original size
-          - Rotate and flip
-          - Thumbnail sidebar
-          - Dark/light theme
-          - Recent files
-          - Keyboard shortcuts
-          - ZIP/CBZ viewing
-          - Webtoon vertical scroll mode
-          - Image information and EXIF panel
-
-          Formats:
-          - Native: jpg, jpeg, png, gif, webp, avif, bmp, ico, svg
-          - Converted: tif, tiff
-          - Container: zip, cbz
-
-          Notes:
-          - Windows package has been locally verified.
-          - Linux package is built by GitHub Actions.
-          - macOS package is not included in this release.
-          - This is an independent free open-source project.
-          - Donations are optional and do not unlock or restrict features.
-          EOF
+          cp docs/release-notes-0.2.0.md release-notes.md
 
       - name: Create or update release
         env:
@@ -130,9 +105,9 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release-downloads/*.zip release-downloads/SHA256SUMS.txt --clobber
+            gh release upload "$TAG_NAME" release-downloads/SuwolView-* release-downloads/SHA256SUMS.txt --clobber
           else
-            gh release create "$TAG_NAME" release-downloads/*.zip release-downloads/SHA256SUMS.txt \
+            gh release create "$TAG_NAME" release-downloads/SuwolView-* release-downloads/SHA256SUMS.txt \
               --title "SuwolView ${TAG_NAME#v}" \
               --notes-file release-notes.md
           fi

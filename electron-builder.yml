@@ -1,5 +1,6 @@
 appId: org.suwolview.app
 productName: SuwolView
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 copyright: Copyright (c) 2026 SuwolView contributors
 icon: assets/icon
 
@@ -40,6 +41,73 @@ win:
     - target: zip
       arch:
         - x64
+    - target: nsis
+      arch:
+        - x64
+
+fileAssociations:
+  - ext: jpg
+    name: JPEG Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: jpeg
+    name: JPEG Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: png
+    name: PNG Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: gif
+    name: GIF Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: webp
+    name: WebP Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: avif
+    name: AVIF Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: bmp
+    name: BMP Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: ico
+    name: Icon Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: svg
+    name: SVG Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: tif
+    name: TIFF Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: tiff
+    name: TIFF Image
+    description: SuwolView image file
+    icon: assets/icon.ico
+  - ext: zip
+    name: ZIP Image Archive
+    description: SuwolView archive file
+    icon: assets/icon.ico
+  - ext: cbz
+    name: CBZ Comic Archive
+    description: SuwolView archive file
+    icon: assets/icon.ico
+
+nsis:
+  artifactName: ${productName}-${version}-setup.${ext}
+  include: build/installer.nsh
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  uninstallDisplayName: SuwolView
 
 linux:
   category: Graphics

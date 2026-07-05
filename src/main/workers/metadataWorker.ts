@@ -4,29 +4,57 @@ import sharp from "sharp";
 import type { ImageMetadata } from "../../shared/types";
 import type { MetadataWorkerRequest, WorkerResponse } from "../libraryTypes";
 
-function stringifyMetadataValue(value: unknown): string | undefined {
+sharp.concurrency(1);
+sharp.cache(false);
+
+interface FlattenResult {
+  exif: Record<string, string>;
+  truncated: boolean;
+}
+
+function trimMetadataText(value: string, maxLength: number): { value: string; truncated: boolean } {
+  if (value.length <= maxLength) {
+    return { value, truncated: false };
+  }
+  return { value: value.slice(0, maxLength), truncated: true };
+}
+
+function stringifyMetadataValue(value: unknown, maxLength: number): { value?: string; truncated: boolean } | undefined {
   if (value === null || value === undefined) return undefined;
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return { value: value.toISOString(), truncated: false };
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
+    return trimMetadataText(String(value), maxLength);
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => stringifyMetadataValue(entry)).filter(Boolean).join(", ");
+    const values = value
+      .map((entry) => stringifyMetadataValue(entry, maxLength))
+      .filter((entry): entry is { value: string; truncated: boolean } => Boolean(entry?.value));
+    const truncated = values.some((entry) => entry.truncated);
+    const joined = trimMetadataText(values.map((entry) => entry.value).join(", "), maxLength);
+    return { value: joined.value, truncated: truncated || joined.truncated };
   }
   return undefined;
 }
 
-function flattenExif(input: unknown): Record<string, string> {
-  if (!input || typeof input !== "object") return {};
+function flattenExif(input: unknown, maxTextLength: number, maxJsonLength: number): FlattenResult {
+  if (!input || typeof input !== "object") return { exif: {}, truncated: false };
   const entries = Object.entries(input as Record<string, unknown>);
   const result: Record<string, string> = {};
+  let remaining = maxJsonLength;
+  let truncated = false;
   for (const [key, value] of entries) {
-    const stringValue = stringifyMetadataValue(value);
-    if (stringValue) {
-      result[key] = stringValue;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+    const stringValue = stringifyMetadataValue(value, Math.min(maxTextLength, remaining));
+    if (stringValue?.value) {
+      result[key] = stringValue.value;
+      remaining -= stringValue.value.length;
+      truncated = truncated || stringValue.truncated;
     }
   }
-  return result;
+  return { exif: result, truncated };
 }
 
 async function readMetadata(request: MetadataWorkerRequest): Promise<ImageMetadata> {
@@ -36,15 +64,20 @@ async function readMetadata(request: MetadataWorkerRequest): Promise<ImageMetada
   }).metadata();
 
   let exif: Record<string, string>;
+  let truncated = false;
   try {
-    exif = flattenExif(
+    const flattened = flattenExif(
       await parse(request.inputPath, {
         mergeOutput: true,
         translateValues: true,
         reviveValues: false,
         sanitize: true
-      })
+      }),
+      request.maxTextLength,
+      request.maxJsonLength
     );
+    exif = flattened.exif;
+    truncated = flattened.truncated;
   } catch {
     exif = {};
   }
@@ -61,7 +94,8 @@ async function readMetadata(request: MetadataWorkerRequest): Promise<ImageMetada
       pages: basic.pages,
       hasAlpha: basic.hasAlpha
     },
-    exif
+    exif,
+    truncated
   };
 }
 

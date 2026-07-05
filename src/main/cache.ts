@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { ensureInside } from "./pathValidation";
 
@@ -21,6 +21,11 @@ export class CachePaths {
       mkdir(this.conversionRoot, { recursive: true }),
       mkdir(this.thumbnailRoot, { recursive: true })
     ]);
+  }
+
+  async clearThumbnails(): Promise<void> {
+    await rm(this.thumbnailRoot, { recursive: true, force: true });
+    await mkdir(this.thumbnailRoot, { recursive: true });
   }
 
   archiveEntryPath(itemId: string, cacheKey: string, extension: string): string {

@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
 import http from "node:http";
+import path from "node:path";
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const nodeCommand = process.execPath;
 const devServerUrl = "http://127.0.0.1:5173";
+const viteCli = path.join(process.cwd(), "node_modules", "vite", "bin", "vite.js");
+const electronCli = path.join(process.cwd(), "node_modules", "electron", "cli.js");
 
 function spawnProcess(command, args, options = {}) {
   return spawn(command, args, {
@@ -46,9 +49,9 @@ function waitForServer(url, timeoutMs = 30000) {
   });
 }
 
-await run(npmCommand, ["run", "build:main"]);
+await run(nodeCommand, [viteCli, "build", "--config", "vite.main.config.ts"]);
 
-const vite = spawnProcess(npmCommand, ["exec", "vite", "--", "--host", "127.0.0.1", "--port", "5173"]);
+const vite = spawnProcess(nodeCommand, [viteCli, "--host", "127.0.0.1", "--port", "5173"]);
 
 try {
   await waitForServer(devServerUrl);
@@ -57,9 +60,11 @@ try {
   throw error;
 }
 
-const electron = spawnProcess(npmCommand, ["exec", "electron", "."], {
+const electron = spawnProcess(nodeCommand, [electronCli, "."], {
   env: {
     ...process.env,
+    ELECTRON_ENABLE_LOGGING: "1",
+    ELECTRON_ENABLE_STACK_DUMPING: "1",
     VITE_DEV_SERVER_URL: devServerUrl
   }
 });

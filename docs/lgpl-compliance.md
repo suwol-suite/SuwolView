@@ -3,6 +3,10 @@
 This document is a project compliance note, not legal advice. It records how
 SuwolView treats LGPL-related dependencies before public distribution.
 
+SuwolView project code is licensed under Apache-2.0 from the 0.2.0 release
+line. This does not relicense third-party dependencies, including LGPL or MPL
+items documented here.
+
 ## Current Image Processing Use
 
 SuwolView uses `sharp` for image conversion, metadata-assisted processing, and

@@ -1,13 +1,28 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, protocol, shell } from "electron";
 import type { OpenDialogOptions, OpenDialogReturnValue } from "electron";
 import { access } from "node:fs/promises";
 import path from "node:path";
+import { WINDOWS_RELEASES_URL } from "../shared/fileAssociations";
+import { isAppLanguageSetting } from "../shared/i18n/languages";
+import { resolveLanguageSetting, translateKey } from "../shared/i18n/lookup";
 import { IPC_CHANNELS } from "../shared/ipc";
-import type { Preferences, ThemeMode } from "../shared/types";
+import type {
+  AppError,
+  AppLanguageSetting,
+  ChromePreferences,
+  LocaleInfo,
+  OpenLibraryResult,
+  PanelPreferences,
+  Preferences,
+  ThemeMode
+} from "../shared/types";
 import { CachePaths } from "./cache";
 import { DecoderLayer } from "./decoder";
+import { resolveDropOpenTarget } from "./dropOpen";
 import { LibraryManager, toFileUrl } from "./library";
+import { AppLogger, logCrash, logMain, logRenderer, registerProcessErrorHandlers, setActiveLogger } from "./logging";
 import { SettingsStore } from "./settings";
+import { extractLaunchPathArguments } from "./startupOpen";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -22,6 +37,50 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow: BrowserWindow | undefined;
+let appRuntime: { cache: CachePaths; logger: AppLogger; settings: SettingsStore; library: LibraryManager } | undefined;
+let rendererReady = false;
+let pendingOpenProcessing = false;
+let nextOpenRequestId = 0;
+const pendingOpenRequests: Array<{ requestId: number; paths: string[] }> = [];
+const safeMode = process.argv.includes("--safe-mode");
+
+registerProcessErrorHandlers();
+
+function launchArgvOptions() {
+  return {
+    isPackaged: app.isPackaged,
+    appPath: app.isPackaged ? undefined : process.cwd(),
+    execPath: process.execPath
+  };
+}
+
+function relaunchArgsForSafeMode(): string[] {
+  return app.isPackaged ? ["--safe-mode"] : [app.getAppPath(), "--safe-mode"];
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function sendFullscreenState(window: BrowserWindow): void {
+  if (window.webContents.isDestroyed()) return;
+  window.webContents.send(IPC_CHANNELS.fullscreenChanged, {
+    fullscreen: window.isFullScreen()
+  });
+}
+
+function windowFromSender(sender: Electron.WebContents): BrowserWindow {
+  const window = BrowserWindow.fromWebContents(sender);
+  if (!window) {
+    throw createIpcError("FULLSCREEN_FAILED", "errors.fullscreenFailed");
+  }
+  return window;
+}
 
 function createWindow(preferences: Preferences): BrowserWindow {
   const window = new BrowserWindow({
@@ -42,6 +101,35 @@ function createWindow(preferences: Preferences): BrowserWindow {
   });
 
   window.removeMenu();
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {
+    console.error(`SuwolView load failed (${errorCode}): ${errorDescription} ${validatedUrl}`);
+    logMain("Renderer load failed", { errorCode, errorDescription, validatedUrl }, "warn");
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    console.error(`SuwolView renderer exited: ${details.reason}`);
+    logCrash("Renderer process gone", { ...details });
+  });
+  window.webContents.on("console-message", (details) => {
+    const consoleLevel = String(details.level).toLowerCase();
+    console.log(
+      `SuwolView renderer console[${details.level}] ${details.sourceId}:${details.lineNumber} ${details.message}`
+    );
+    if (consoleLevel === "warning" || consoleLevel === "warn" || consoleLevel === "error") {
+      logRenderer({
+        level: consoleLevel === "error" ? "error" : "warn",
+        message: details.message,
+        source: `${details.sourceId}:${details.lineNumber}`
+      });
+    }
+  });
+  window.on("closed", () => {
+    if (mainWindow === window) {
+      mainWindow = undefined;
+      rendererReady = false;
+    }
+  });
+  window.on("enter-full-screen", () => sendFullscreenState(window));
+  window.on("leave-full-screen", () => sendFullscreenState(window));
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (devServerUrl) {
@@ -53,7 +141,11 @@ function createWindow(preferences: Preferences): BrowserWindow {
   return window;
 }
 
-function registerImageProtocol(library: LibraryManager): void {
+function translateForSettings(settings: SettingsStore, key: string): string {
+  return translateKey(resolveLanguageSetting(settings.get().language, getLocaleInfo()), key);
+}
+
+function registerImageProtocol(library: LibraryManager, settings: SettingsStore): void {
   protocol.handle("suwol-image", async (request) => {
     try {
       const url = new URL(request.url);
@@ -61,7 +153,7 @@ function registerImageProtocol(library: LibraryManager): void {
       const itemId = decodeURIComponent(url.pathname.slice(1));
 
       if (!itemId || !library.hasCurrentItem(itemId)) {
-        return new Response("Image not found.", { status: 404 });
+        return new Response(translateForSettings(settings, "errors.imageNotFound"), { status: 404 });
       }
 
       const resolved =
@@ -72,7 +164,7 @@ function registerImageProtocol(library: LibraryManager): void {
             : undefined;
 
       if (!resolved) {
-        return new Response("Unknown image request.", { status: 404 });
+        return new Response(translateForSettings(settings, "errors.unknownImageRequest"), { status: 404 });
       }
 
       const response = await net.fetch(toFileUrl(resolved.path));
@@ -85,7 +177,9 @@ function registerImageProtocol(library: LibraryManager): void {
         }
       });
     } catch (error) {
-      return new Response(error instanceof Error ? error.message : "Unable to load image.", { status: 500 });
+      return new Response(error instanceof Error ? error.message : translateForSettings(settings, "errors.unableToLoadImage"), {
+        status: 500
+      });
     }
   });
 }
@@ -100,67 +194,311 @@ function addRecentToResult<T extends { source: { id: string }; recent: unknown[]
   };
 }
 
+async function openAndRemember(
+  library: LibraryManager,
+  settings: SettingsStore,
+  open: () => Promise<OpenLibraryResult>
+): Promise<OpenLibraryResult> {
+  const result = await open();
+  const preferences = await settings.addRecent(result.source);
+  return addRecentToResult(result, preferences);
+}
+
 function showOpenDialog(options: OpenDialogOptions): Promise<OpenDialogReturnValue> {
   return mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options);
+}
+
+function createAppErrorPayload(code: string, messageKey: string, details?: string): AppError {
+  return { code, messageKey, details };
+}
+
+function createIpcError(code: string, messageKey: string, details?: string): Error {
+  const payload = createAppErrorPayload(code, messageKey, details);
+  const error = new Error(JSON.stringify(payload));
+  error.name = "SuwolViewError";
+  return error;
+}
+
+function appErrorFromUnknown(error: unknown, fallbackCode: string, fallbackMessageKey: string): AppError {
+  if (error instanceof Error) {
+    try {
+      const parsed = JSON.parse(error.message) as Partial<AppError>;
+      if (typeof parsed.code === "string" && typeof parsed.messageKey === "string") {
+        return {
+          code: parsed.code,
+          messageKey: parsed.messageKey,
+          details: typeof parsed.details === "string" ? parsed.details : undefined
+        };
+      }
+    } catch {
+      // Fall through to the fallback payload.
+    }
+    return createAppErrorPayload(fallbackCode, fallbackMessageKey, error.message);
+  }
+  return createAppErrorPayload(fallbackCode, fallbackMessageKey, String(error));
+}
+
+async function openInputPaths(
+  library: LibraryManager,
+  settings: SettingsStore,
+  inputPaths: readonly string[],
+  options: {
+    unsupportedCode: string;
+    unsupportedMessageKey: string;
+    failedCode: string;
+    failedMessageKey: string;
+  }
+): Promise<OpenLibraryResult> {
+  try {
+    const target = await resolveDropOpenTarget(inputPaths);
+    if (target.type === "folder") {
+      return openAndRemember(library, settings, () => library.openFolder(target.path));
+    }
+    if (target.type === "image") {
+      return openAndRemember(library, settings, () => library.openFile(target.path));
+    }
+    if (target.type === "images") {
+      return openAndRemember(library, settings, () => library.openFiles(target.paths));
+    }
+    if (target.type === "archive") {
+      return openAndRemember(library, settings, () => library.openArchive(target.path));
+    }
+    throw createIpcError(options.unsupportedCode, options.unsupportedMessageKey);
+  } catch (error) {
+    if (error instanceof Error && error.name === "SuwolViewError") {
+      throw error;
+    }
+    throw createIpcError(options.failedCode, options.failedMessageKey, error instanceof Error ? error.message : String(error));
+  }
+}
+
+function enqueueOpenPaths(paths: readonly string[]): void {
+  const launchPaths = paths.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+  if (launchPaths.length === 0) return;
+  pendingOpenRequests.push({
+    requestId: nextOpenRequestId + 1,
+    paths: launchPaths
+  });
+  nextOpenRequestId += 1;
+  focusMainWindow();
+  void flushPendingOpenRequests();
+}
+
+async function flushPendingOpenRequests(): Promise<void> {
+  if (pendingOpenProcessing || !appRuntime || !rendererReady || !mainWindow) return;
+  pendingOpenProcessing = true;
+  try {
+    while (pendingOpenRequests.length > 0 && mainWindow && rendererReady) {
+      const request = pendingOpenRequests.shift();
+      if (!request) continue;
+      try {
+        const result = await openInputPaths(appRuntime.library, appRuntime.settings, request.paths, {
+          unsupportedCode: "UNSUPPORTED_LAUNCH_ITEM",
+          unsupportedMessageKey: "errors.unsupportedLaunchItem",
+          failedCode: "OPEN_ARGUMENT_FAILED",
+          failedMessageKey: "errors.openArgumentFailed"
+        });
+        mainWindow.webContents.send(IPC_CHANNELS.openLibraryResult, { requestId: request.requestId, result });
+      } catch (error) {
+        mainWindow.webContents.send(IPC_CHANNELS.openError, {
+          requestId: request.requestId,
+          error: appErrorFromUnknown(error, "OPEN_ARGUMENT_FAILED", "errors.openArgumentFailed")
+        });
+      }
+    }
+  } finally {
+    pendingOpenProcessing = false;
+  }
+}
+
+function getLocaleInfo(): LocaleInfo {
+  const locale = app.getLocale();
+  const preferredSystemLanguages = app.getPreferredSystemLanguages();
+  return {
+    locale,
+    preferredSystemLanguages: preferredSystemLanguages.length > 0 ? preferredSystemLanguages : [locale].filter(Boolean)
+  };
 }
 
 function registerIpcHandlers(settings: SettingsStore, library: LibraryManager): void {
   ipcMain.handle(IPC_CHANNELS.openFolder, async () => {
     const selection = await showOpenDialog({
-      title: "Open Folder",
+      title: translateForSettings(settings, "toolbar.openFolder"),
       properties: ["openDirectory"]
     });
     if (selection.canceled || selection.filePaths.length === 0) return null;
 
-    const result = await library.openFolder(selection.filePaths[0]);
-    const preferences = await settings.addRecent(result.source);
-    return addRecentToResult(result, preferences);
+    return openAndRemember(library, settings, () => library.openFolder(selection.filePaths[0]));
   });
 
   ipcMain.handle(IPC_CHANNELS.openFile, async () => {
     const selection = await showOpenDialog({
-      title: "Open File",
+      title: translateForSettings(settings, "toolbar.openFile"),
       properties: ["openFile"],
       filters: [
         {
-          name: "SuwolView supported files",
+          name: translateForSettings(settings, "formats.supportedFiles"),
           extensions: ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "ico", "svg", "tif", "tiff", "zip", "cbz"]
         }
       ]
     });
     if (selection.canceled || selection.filePaths.length === 0) return null;
 
-    const result = await library.openFile(selection.filePaths[0]);
-    const preferences = await settings.addRecent(result.source);
-    return addRecentToResult(result, preferences);
+    return openAndRemember(library, settings, () => library.openFile(selection.filePaths[0]));
   });
 
   ipcMain.handle(IPC_CHANNELS.openRecent, async (_event, sourceId: string) => {
     const recent = settings.findRecent(sourceId);
     if (!recent) {
-      throw new Error("Recent source not found.");
+      throw createIpcError("RECENT_SOURCE_NOT_FOUND", "errors.recentSourceNotFound");
     }
-    const result = await library.openPath(recent);
-    const preferences = await settings.addRecent(result.source);
-    return addRecentToResult(result, preferences);
+    return openAndRemember(library, settings, () => library.openPath(recent));
   });
+
+  ipcMain.handle(IPC_CHANNELS.openDroppedPaths, async (_event, paths: unknown) => {
+    if (!Array.isArray(paths) || paths.length === 0) {
+      throw createIpcError("DROP_UNSUPPORTED", "errors.dropUnsupported");
+    }
+    return openInputPaths(library, settings, paths.filter((entry): entry is string => typeof entry === "string"), {
+      unsupportedCode: "DROP_UNSUPPORTED",
+      unsupportedMessageKey: "errors.dropUnsupported",
+      failedCode: "DROP_OPEN_FAILED",
+      failedMessageKey: "errors.dropOpenFailed"
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getLocaleInfo, () => getLocaleInfo());
 
   ipcMain.handle(IPC_CHANNELS.getPreferences, () => settings.get());
 
+  ipcMain.handle(IPC_CHANNELS.getLanguage, () => settings.get().language);
+
+  ipcMain.handle(IPC_CHANNELS.setLanguage, async (_event, language: AppLanguageSetting) => {
+    if (!isAppLanguageSetting(language)) {
+      throw createIpcError("INVALID_LANGUAGE", "errors.invalidLanguage");
+    }
+    return settings.setLanguage(language);
+  });
+
   ipcMain.handle(IPC_CHANNELS.setTheme, async (_event, theme: ThemeMode) => {
     if (theme !== "dark" && theme !== "light") {
-      throw new Error("Invalid theme.");
+      throw createIpcError("INVALID_THEME", "errors.invalidTheme");
     }
     nativeTheme.themeSource = theme;
     return settings.setTheme(theme);
   });
 
-  ipcMain.handle(IPC_CHANNELS.setPanelState, async (_event, state: Pick<Preferences, "showThumbnails" | "showInfo">) => {
-    return settings.setPanelState(Boolean(state.showThumbnails), Boolean(state.showInfo));
+  ipcMain.handle(IPC_CHANNELS.updatePanelPreferences, async (_event, state: Partial<PanelPreferences>) => {
+    return settings.updatePanelPreferences(state);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.updateChromePreferences, async (_event, state: Partial<ChromePreferences>) => {
+    return settings.updateChromePreferences(state);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.toggleFullscreen, (event) => {
+    const window = windowFromSender(event.sender);
+    const nextFullscreen = !window.isFullScreen();
+    window.setFullScreen(nextFullscreen);
+    return nextFullscreen;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.setFullscreen, (event, fullscreen: unknown) => {
+    const window = windowFromSender(event.sender);
+    const nextFullscreen = fullscreen === true;
+    window.setFullScreen(nextFullscreen);
+    return nextFullscreen;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getFullscreenState, (event) => {
+    return windowFromSender(event.sender).isFullScreen();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.openSystemSettings, async (_event, target: unknown) => {
+    if (target !== "defaultApps" || process.platform !== "win32") {
+      throw createIpcError("SYSTEM_SETTINGS_OPEN_FAILED", "errors.systemSettingsOpenFailed");
+    }
+    await shell.openExternal("ms-settings:defaultapps");
+  });
+
+  ipcMain.handle(IPC_CHANNELS.openReleases, async () => {
+    await shell.openExternal(WINDOWS_RELEASES_URL);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.copyExecutablePath, () => {
+    const executablePath = app.getPath("exe");
+    clipboard.writeText(executablePath);
+    return executablePath;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getRuntimeInfo, () => ({
+    version: app.getVersion(),
+    safeMode
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.openLogsFolder, async () => {
+    if (!appRuntime) {
+      throw createIpcError("LOGS_OPEN_FAILED", "errors.logsOpenFailed");
+    }
+    await appRuntime.logger.ensure();
+    const result = await shell.openPath(appRuntime.logger.logDir);
+    if (result) {
+      throw createIpcError("LOGS_OPEN_FAILED", "errors.logsOpenFailed", result);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.resetSettings, async () => {
+    const preferences = await settings.reset();
+    nativeTheme.themeSource = preferences.theme;
+    logMain("Settings reset from renderer request");
+    return preferences;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.clearThumbnailCache, async () => {
+    if (!appRuntime) {
+      throw createIpcError("CACHE_CLEAR_FAILED", "errors.cacheClearFailed");
+    }
+    await appRuntime.cache.clearThumbnails();
+    logMain("Thumbnail cache cleared from renderer request");
+  });
+
+  ipcMain.handle(IPC_CHANNELS.restartInSafeMode, () => {
+    logMain("Restart in safe mode requested");
+    app.relaunch({ args: relaunchArgsForSafeMode() });
+    app.exit(0);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.writeRendererLog, (_event, payload: unknown) => {
+    if (payload && typeof payload === "object" && "message" in payload) {
+      const entry = payload as { level?: unknown; message?: unknown; stack?: unknown; source?: unknown };
+      if (typeof entry.message !== "string") return;
+      logRenderer({
+        level: entry.level === "info" || entry.level === "warn" || entry.level === "error" ? entry.level : "error",
+        message: entry.message,
+        stack: typeof entry.stack === "string" ? entry.stack : undefined,
+        source: typeof entry.source === "string" ? entry.source : undefined
+      });
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.rendererReady, () => {
+    rendererReady = true;
+    void flushPendingOpenRequests();
   });
 
   ipcMain.handle(IPC_CHANNELS.getMetadata, async (_event, itemId: string) => {
-    return library.readMetadata(itemId);
+    try {
+      return await library.readMetadata(itemId);
+    } catch (error) {
+      return {
+        ok: false,
+        ...createAppErrorPayload(
+          "METADATA_FAILED",
+          "errors.metadataFailed",
+          error instanceof Error ? error.message : String(error)
+        )
+      };
+    }
   });
 }
 
@@ -175,7 +513,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 async function ensureLegalFilesPresent(): Promise<void> {
   const searchRoots = [app.getAppPath(), process.resourcesPath, path.dirname(app.getPath("exe"))];
-  const requiredFiles = ["LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md"];
+  const requiredFiles = ["LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md", "README.md"];
   const missingFiles: string[] = [];
 
   for (const fileName of requiredFiles) {
@@ -191,18 +529,52 @@ async function ensureLegalFilesPresent(): Promise<void> {
   }
 }
 
-void app.whenReady().then(async () => {
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  if (!safeMode) {
+    enqueueOpenPaths(extractLaunchPathArguments(process.argv, launchArgvOptions()));
+  }
+
+  app.on("second-instance", (_event, argv) => {
+    focusMainWindow();
+    if (!safeMode) {
+      enqueueOpenPaths(extractLaunchPathArguments(argv, launchArgvOptions()));
+    }
+  });
+
+  app.on("open-file", (event, filePath) => {
+    event.preventDefault();
+    if (!safeMode) {
+      enqueueOpenPaths([filePath]);
+    }
+  });
+}
+
+app.on("child-process-gone", (_event, details) => {
+  logCrash("Child process gone", { ...details });
+});
+
+if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   const cache = new CachePaths(app.getPath("userData"));
   await cache.ensure();
 
+  const logger = new AppLogger(app.getPath("userData"));
+  await logger.ensure();
+  setActiveLogger(logger);
+  logMain("SuwolView starting", { version: app.getVersion(), safeMode, packaged: app.isPackaged });
+
   const settings = new SettingsStore(app.getPath("userData"));
-  const preferences = await settings.load();
+  const preferences = await settings.load({ safeMode });
   nativeTheme.themeSource = preferences.theme;
 
   const decoder = new DecoderLayer(cache);
   const library = new LibraryManager(decoder);
+  appRuntime = { cache, logger, settings, library };
 
-  registerImageProtocol(library);
+  registerImageProtocol(library, settings);
   registerIpcHandlers(settings, library);
 
   await ensureLegalFilesPresent();
