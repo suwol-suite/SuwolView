@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const platform = process.argv[2];
@@ -21,14 +21,21 @@ function artifactMatchesPlatform(name) {
     );
   }
 
-  return new RegExp(
-    `^SuwolView-${escapeRegExp(version)}-linux-x64\\.(?:AppImage|tar\\.gz|deb|rpm)$`,
-    "i"
-  ).test(name);
+  return (
+    new RegExp(`^SuwolView-${escapeRegExp(version)}-linux-x(?:64|86_64)\\.AppImage$`, "i").test(name) ||
+    new RegExp(`^SuwolView-${escapeRegExp(version)}-linux-x64\\.(?:tar\\.gz|deb|rpm)$`, "i").test(name)
+  );
 }
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function releaseArtifactName(name) {
+  if (platform === "linux") {
+    return name.replace(/-linux-x86_64\.AppImage$/i, "-linux-x64.AppImage");
+  }
+  return name;
 }
 
 const entries = await readdir(releaseDir, { withFileTypes: true });
@@ -47,7 +54,7 @@ if (candidates.length === 0) {
 await mkdir(outputDir, { recursive: true });
 
 for (const candidate of candidates.sort((left, right) => left.fullPath.localeCompare(right.fullPath))) {
-  const outputPath = path.join(outputDir, path.basename(candidate.fullPath));
+  const outputPath = path.join(outputDir, releaseArtifactName(path.basename(candidate.fullPath)));
   await copyFile(candidate.fullPath, outputPath);
   console.log(`Collected ${path.relative(root, outputPath)}.`);
 }
@@ -55,7 +62,7 @@ for (const candidate of candidates.sort((left, right) => left.fullPath.localeCom
 const requiredLinuxExtensions = [".AppImage", ".tar.gz"];
 if (platform === "linux") {
   for (const extension of requiredLinuxExtensions) {
-    if (!candidates.some((candidate) => path.basename(candidate.fullPath).endsWith(extension))) {
+    if (!candidates.some((candidate) => releaseArtifactName(path.basename(candidate.fullPath)).endsWith(extension))) {
       console.error(`Missing Linux ${extension} artifact in release/.`);
       process.exit(1);
     }
@@ -85,7 +92,21 @@ async function copyIfPresent(fileName, options = {}) {
 }
 
 if (platform === "linux") {
-  await copyIfPresent("latest-linux.yml", { required: true });
+  const sourcePath = path.join(releaseDir, "latest-linux.yml");
+  const fileStats = await stat(sourcePath).catch(() => undefined);
+  if (!fileStats?.isFile()) {
+    console.error("Missing required release metadata: release/latest-linux.yml.");
+    process.exit(1);
+  }
+
+  const outputPath = path.join(outputDir, "latest-linux.yml");
+  const metadata = await readFile(sourcePath, "utf8");
+  const normalizedMetadata = metadata.replaceAll(
+    `SuwolView-${version}-linux-x86_64.AppImage`,
+    `SuwolView-${version}-linux-x64.AppImage`
+  );
+  await writeFile(outputPath, normalizedMetadata);
+  console.log(`Collected ${path.relative(root, outputPath)}.`);
 }
 
 if (platform === "win") {

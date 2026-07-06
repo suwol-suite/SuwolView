@@ -250,6 +250,15 @@ async function assertNoForbiddenReleaseFiles(directoryPath) {
   }
 }
 
+async function firstExistingFile(directoryPath, fileNames) {
+  for (const fileName of fileNames) {
+    if (await exists(path.join(directoryPath, fileName))) {
+      return fileName;
+    }
+  }
+  return undefined;
+}
+
 async function checkLinuxReleaseArtifacts(buildMtime) {
   const releaseDir = path.join(root, "release");
   if (!(await exists(releaseDir))) {
@@ -257,19 +266,20 @@ async function checkLinuxReleaseArtifacts(buildMtime) {
   }
 
   const expectedFiles = [
-    `SuwolView-${packageVersion}-linux-x64.AppImage`,
-    `SuwolView-${packageVersion}-linux-x64.tar.gz`,
-    "latest-linux.yml"
+    [`SuwolView-${packageVersion}-linux-x64.AppImage`, `SuwolView-${packageVersion}-linux-x86_64.AppImage`],
+    [`SuwolView-${packageVersion}-linux-x64.tar.gz`],
+    ["latest-linux.yml"]
   ];
 
   let foundAny = false;
   const missingExpectedFiles = [];
-  for (const fileName of expectedFiles) {
-    const fullPath = path.join(releaseDir, fileName);
-    if (!(await exists(fullPath))) {
-      missingExpectedFiles.push(fileName);
+  for (const fileNames of expectedFiles) {
+    const resolvedFileName = await firstExistingFile(releaseDir, fileNames);
+    if (!resolvedFileName) {
+      missingExpectedFiles.push(fileNames.join(" or "));
       continue;
     }
+    const fullPath = path.join(releaseDir, resolvedFileName);
     foundAny = true;
     const artifactStats = await stat(fullPath);
     if (artifactStats.mtimeMs < buildMtime) {
@@ -282,7 +292,7 @@ async function checkLinuxReleaseArtifacts(buildMtime) {
   }
 
   const hasLinuxArtifact = (await readdir(releaseDir, { withFileTypes: true })).some(
-    (entry) => entry.isFile() && /^SuwolView-.+-linux-x64\.(?:AppImage|tar\.gz|deb|rpm)$/i.test(entry.name)
+    (entry) => entry.isFile() && /^SuwolView-.+-linux-x(?:64|86_64)\.(?:AppImage|tar\.gz|deb|rpm)$/i.test(entry.name)
   );
   if (hasLinuxArtifact && (!foundAny || missingExpectedFiles.length > 0)) {
     failures.push(`Linux release build missing required files: ${missingExpectedFiles.join(", ")}`);

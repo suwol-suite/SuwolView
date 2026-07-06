@@ -18,6 +18,7 @@ describe("release artifact policy", () => {
     expect(collectScript).toContain("latest-linux.yml");
     expect(collectScript).toContain("suwol-release-public-key.asc");
     expect(collectScript).toContain("Missing required release metadata");
+    expect(collectScript).toContain("linux-x86_64.AppImage");
   });
 
   it("signs and uploads checksums from the release workflow", async () => {
