@@ -3,9 +3,9 @@
 This document is a project compliance note, not legal advice. It records how
 SuwolView treats LGPL-related dependencies before public distribution.
 
-SuwolView project code is licensed under Apache-2.0 from the 0.2.0 release
-line. This does not relicense third-party dependencies, including LGPL or MPL
-items documented here.
+The current main branch and future distributions of SuwolView project code are
+licensed under the Apache License 2.0. This does not relicense third-party
+dependencies, including LGPL or MPL items documented here.
 
 ## Current Image Processing Use
 

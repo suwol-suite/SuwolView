@@ -292,14 +292,13 @@ To check a single downloaded file on macOS:
 shasum -a 256 <file>
 ```
 
-## License Policy
+## License
 
-License: Apache-2.0.
+SuwolView is licensed under the Apache License 2.0.
+See `LICENSE` for details.
 
-SuwolView project code is distributed under the Apache License, Version 2.0
-from the 0.2.0 release line onward. Earlier public releases may have been
-distributed under the MIT License and remain under the license terms that
-applied to those releases.
+Third-party dependencies are distributed under their respective licenses.
+See `THIRD_PARTY_LICENSES.md` and `NOTICE` for details.
 
 New dependencies must pass the checklist in `docs/third-party-policy.md`.
 The default app blocks GPL, AGPL, SSPL, commercial-use-restricted licenses,

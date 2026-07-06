@@ -5,7 +5,7 @@ one release.
 
 ## Major Changes
 
-- License changed to Apache-2.0 for current and future project code releases.
+- Project license notice standardized as Apache License 2.0 for project code.
 - Korean and English localization.
 - Drag and drop open for local image files, folders, ZIP archives, and CBZ archives.
 - Launch argument open for local image files, folders, ZIP archives, and CBZ archives.

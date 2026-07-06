@@ -4,8 +4,10 @@ This file tracks direct runtime and build dependencies used by SuwolView.
 Run `npm run license:check` after every dependency change and update this file
 when a new direct dependency is added or removed.
 
-SuwolView project code is licensed under Apache-2.0 from the 0.2.0 release
-line. Third-party dependencies remain under their respective licenses.
+The current main branch and future distributions of SuwolView project code are
+licensed under the Apache License 2.0. Published release tags remain as
+distributed at their original revisions. Third-party dependencies remain under
+their respective licenses.
 
 ## Direct Runtime Dependencies
 

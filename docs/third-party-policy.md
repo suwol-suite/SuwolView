@@ -59,6 +59,7 @@ Before publishing:
 - Confirm `LICENSE`, `NOTICE`, and `THIRD_PARTY_LICENSES.md` are included.
 - Confirm `README.md` and compliance docs are included.
 - Confirm generated release artifacts have SHA-256 checksum files.
-- Confirm the project package license is `Apache-2.0`.
+- Confirm the project package metadata uses SPDX `Apache-2.0`.
+- Confirm human-facing SuwolView project notices say Apache License 2.0.
 - Confirm review-required LGPL/MPL items remain documented and that blocked
   licenses remain blocked.

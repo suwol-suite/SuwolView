@@ -1,19 +1,15 @@
 SuwolView
-Copyright (c) 2026 SuwolView contributors.
+Copyright 2026 Suwol Suite
 
 SuwolView is licensed under the Apache License, Version 2.0.
 
-Earlier public releases may have been distributed under the MIT License.
-
-SuwolView includes third-party open-source software.
-
-Some image processing features are powered by sharp and related
-native/prebuilt image libraries.
+This product includes third-party open-source software.
 
 Third-party license details are available in THIRD_PARTY_LICENSES.md.
 
 SuwolView is an independent project and is not affiliated with any third-party
 image viewer product.
 
-Native image conversion components and optional external tools must be reviewed
-before redistribution.
+Some image processing features are powered by sharp and related native/prebuilt
+image libraries. Native image conversion components and optional external tools
+must be reviewed before redistribution.

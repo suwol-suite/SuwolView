@@ -16,11 +16,11 @@ or marketing language that implies affiliation.
 
 ## Licensing Defaults
 
-SuwolView project code is licensed under the Apache License, Version 2.0 for
-current and future distributions from the 0.2.0 release line. Earlier public
-tags, including `v0.1.0`, remain available under the license terms that applied
-to those releases. This license change applies to SuwolView project code and
-does not change third-party dependency licenses.
+The current main branch and future distributions of SuwolView project code are
+licensed under the Apache License 2.0. Published release tags remain as
+distributed at their original revisions and are not retroactively changed. This
+project license applies to SuwolView project code and does not change
+third-party dependency licenses.
 
 The default application may use permissive dependencies after review, with
 preference for MIT, Apache-2.0, BSD, ISC, Zlib, and Unlicense terms. MPL and
