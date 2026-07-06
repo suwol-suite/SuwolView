@@ -150,7 +150,9 @@ jobs:
 
       - name: Write release notes
         run: |
-          cp docs/release-notes-0.2.0.md release-notes.md
+          RELEASE_NOTES="docs/release-notes-${GITHUB_REF_NAME#v}.md"
+          test -s "$RELEASE_NOTES"
+          cp "$RELEASE_NOTES" release-notes.md
 
       - name: Create or update release
         env:

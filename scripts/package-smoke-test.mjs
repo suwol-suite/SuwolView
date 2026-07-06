@@ -3,6 +3,10 @@ import path from "node:path";
 import * as yauzl from "yauzl";
 
 const root = process.cwd();
+const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+const packageVersion = typeof packageJson.version === "string" ? packageJson.version : "";
+const releaseNotesFile = `docs/release-notes-${packageVersion}.md`;
+const manualQcFile = `docs/manual-qc-${packageVersion}.md`;
 
 const requiredProjectFiles = [
   "dist/index.html",
@@ -16,8 +20,8 @@ const requiredProjectFiles = [
   "docs/third-party-policy.md",
   "docs/lgpl-compliance.md",
   "docs/security-policy.md",
-  "docs/manual-qc-0.2.0.md",
-  "docs/release-notes-0.2.0.md",
+  manualQcFile,
+  releaseNotesFile,
   "suwol-release-public-key.asc",
   "assets/icon-source.png",
   "assets/icon.ico",
@@ -33,8 +37,8 @@ const requiredPackagedResources = [
   "resources/docs/third-party-policy.md",
   "resources/docs/lgpl-compliance.md",
   "resources/docs/security-policy.md",
-  "resources/docs/manual-qc-0.2.0.md",
-  "resources/docs/release-notes-0.2.0.md",
+  `resources/${manualQcFile}`,
+  `resources/${releaseNotesFile}`,
   "resources/icon.ico",
   "resources/icon.png"
 ];
@@ -49,7 +53,6 @@ const forbiddenReleaseFilePatterns = [
 
 const failures = [];
 const notes = [];
-let packageVersion = "";
 
 async function exists(filePath) {
   try {
@@ -67,8 +70,6 @@ for (const file of requiredProjectFiles) {
 }
 
 try {
-  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-  packageVersion = typeof packageJson.version === "string" ? packageJson.version : "";
   if (!packageVersion) {
     failures.push("package.json version must be present.");
   }

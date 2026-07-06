@@ -16,7 +16,7 @@ image viewer product.
 | --- | --- | --- |
 | Windows | NSIS installer and ZIP package | Verified locally |
 | Linux | ZIP package | GitHub Actions target prepared |
-| macOS | Future package | Not included in the 0.2.0 release scope |
+| macOS | Future package | Not included in the 0.2.1 release scope |
 
 ## Current Features
 
@@ -77,10 +77,10 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows installer: `SuwolView-0.2.0-setup.exe`
-- Windows portable ZIP: `SuwolView-0.2.0-win-x64.zip`
-- Linux AppImage: `SuwolView-0.2.0-linux-x64.AppImage`
-- Linux portable tar.gz: `SuwolView-0.2.0-linux-x64.tar.gz`
+- Windows installer: `SuwolView-0.2.1-setup.exe`
+- Windows portable ZIP: `SuwolView-0.2.1-win-x64.zip`
+- Linux AppImage: `SuwolView-0.2.1-linux-x64.AppImage`
+- Linux portable tar.gz: `SuwolView-0.2.1-linux-x64.tar.gz`
 
 Startup update checks are not enabled by default.
 
@@ -254,7 +254,7 @@ Release workflows are configured to produce:
 - `checksums.txt.asc`
 - `suwol-release-public-key.asc`
 - `latest-linux.yml`
-- Release notes based on `docs/release-notes-0.2.0.md`
+- Release notes based on the tag version, for example `docs/release-notes-0.2.1.md`
 
 The current locally verified Windows targets are the NSIS installer and ZIP
 package. Linux AppImage and tar.gz artifacts are built by GitHub Actions.
@@ -343,7 +343,7 @@ Large or unsafe metadata blocks may be skipped or truncated.
 
 More detail is available in `docs/security-policy.md`.
 
-Manual release checks are tracked in `docs/manual-qc-0.2.0.md`.
+Manual release checks are tracked in `docs/manual-qc-0.2.1.md`.
 
 ## Contributing
 
