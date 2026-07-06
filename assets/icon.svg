@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="SuwolView icon">
-  <rect width="1024" height="1024" rx="216" fill="#101418"/>
-  <rect x="214" y="176" width="596" height="672" rx="112" fill="#172027" stroke="#D2A14A" stroke-width="48"/>
-  <path d="M292 664C356 496 436 392 512 392C588 392 668 496 732 664" fill="none" stroke="#2FB7AA" stroke-width="80" stroke-linecap="round"/>
-  <circle cx="512" cy="540" r="72" fill="#EDF2F4"/>
-  <path d="M336 768H688" stroke="#2FB7AA" stroke-width="56" stroke-linecap="round"/>
-</svg>

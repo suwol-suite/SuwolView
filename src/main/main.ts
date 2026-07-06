@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, protocol, shell } from "electron";
 import type { OpenDialogOptions, OpenDialogReturnValue } from "electron";
+import { existsSync } from "node:fs";
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { WINDOWS_RELEASES_URL } from "../shared/fileAssociations";
@@ -14,7 +15,8 @@ import type {
   OpenLibraryResult,
   PanelPreferences,
   Preferences,
-  ThemeMode
+  ThemeMode,
+  UpdatePreferences
 } from "../shared/types";
 import { CachePaths } from "./cache";
 import { DecoderLayer } from "./decoder";
@@ -23,6 +25,7 @@ import { LibraryManager, toFileUrl } from "./library";
 import { AppLogger, logCrash, logMain, logRenderer, registerProcessErrorHandlers, setActiveLogger } from "./logging";
 import { SettingsStore } from "./settings";
 import { extractLaunchPathArguments } from "./startupOpen";
+import { UpdateService } from "./updateService";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -37,7 +40,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow: BrowserWindow | undefined;
-let appRuntime: { cache: CachePaths; logger: AppLogger; settings: SettingsStore; library: LibraryManager } | undefined;
+let appRuntime:
+  | { cache: CachePaths; logger: AppLogger; settings: SettingsStore; library: LibraryManager; updates: UpdateService }
+  | undefined;
 let rendererReady = false;
 let pendingOpenProcessing = false;
 let nextOpenRequestId = 0;
@@ -56,6 +61,13 @@ function launchArgvOptions() {
 
 function relaunchArgsForSafeMode(): string[] {
   return app.isPackaged ? ["--safe-mode"] : [app.getAppPath(), "--safe-mode"];
+}
+
+function appIconPath(): string | undefined {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, "icon.ico"), path.join(process.resourcesPath, "icon.png")]
+    : [path.join(process.cwd(), "assets", "icon.ico"), path.join(process.cwd(), "assets", "icon.png")];
+  return candidates.find((candidate) => existsSync(candidate));
 }
 
 function focusMainWindow(): void {
@@ -89,6 +101,7 @@ function createWindow(preferences: Preferences): BrowserWindow {
     minWidth: 980,
     minHeight: 640,
     title: "SuwolView",
+    icon: appIconPath(),
     backgroundColor: preferences.theme === "dark" ? "#101418" : "#f6f8f9",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -320,7 +333,7 @@ function getLocaleInfo(): LocaleInfo {
   };
 }
 
-function registerIpcHandlers(settings: SettingsStore, library: LibraryManager): void {
+function registerIpcHandlers(settings: SettingsStore, library: LibraryManager, updates: UpdateService): void {
   ipcMain.handle(IPC_CHANNELS.openFolder, async () => {
     const selection = await showOpenDialog({
       title: translateForSettings(settings, "toolbar.openFolder"),
@@ -396,6 +409,14 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager): 
     return settings.updateChromePreferences(state);
   });
 
+  ipcMain.handle(IPC_CHANNELS.updateUpdatePreferences, async (_event, state: Partial<UpdatePreferences>) => {
+    const preferences = await settings.updateUpdatePreferences(state);
+    updates.setPreferences({
+      checkForUpdatesOnStartup: preferences.checkForUpdatesOnStartup
+    });
+    return preferences;
+  });
+
   ipcMain.handle(IPC_CHANNELS.toggleFullscreen, (event) => {
     const window = windowFromSender(event.sender);
     const nextFullscreen = !window.isFullScreen();
@@ -447,6 +468,13 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager): 
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.getLogInfo, async () => {
+    if (!appRuntime) {
+      throw createIpcError("LOG_INFO_FAILED", "errors.logsOpenFailed");
+    }
+    return appRuntime.logger.info();
+  });
+
   ipcMain.handle(IPC_CHANNELS.resetSettings, async () => {
     const preferences = await settings.reset();
     nativeTheme.themeSource = preferences.theme;
@@ -454,12 +482,36 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager): 
     return preferences;
   });
 
+  ipcMain.handle(IPC_CHANNELS.getCacheStats, async () => {
+    if (!appRuntime) {
+      throw createIpcError("CACHE_STATS_FAILED", "errors.cacheStatsFailed");
+    }
+    return appRuntime.cache.getStats();
+  });
+
   ipcMain.handle(IPC_CHANNELS.clearThumbnailCache, async () => {
     if (!appRuntime) {
       throw createIpcError("CACHE_CLEAR_FAILED", "errors.cacheClearFailed");
     }
-    await appRuntime.cache.clearThumbnails();
-    logMain("Thumbnail cache cleared from renderer request");
+    const result = await appRuntime.cache.clearThumbnailCache();
+    library.clearMetadataFailureCache();
+    logMain("Thumbnail and metadata failure caches cleared from renderer request", {
+      removedEntries: result.removedEntries,
+      removedBytes: result.removedBytes
+    });
+    return result;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.cleanupThumbnailCache, async () => {
+    if (!appRuntime) {
+      throw createIpcError("CACHE_CLEANUP_FAILED", "errors.cacheCleanupFailed");
+    }
+    const result = await appRuntime.cache.cleanupThumbnails();
+    logMain("Old thumbnail cache entries cleaned from renderer request", {
+      removedEntries: result.removedEntries,
+      removedBytes: result.removedBytes
+    });
+    return result;
   });
 
   ipcMain.handle(IPC_CHANNELS.restartInSafeMode, () => {
@@ -500,6 +552,14 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager): 
       };
     }
   });
+
+  ipcMain.handle(IPC_CHANNELS.getUpdateStatus, () => updates.getStatus());
+
+  ipcMain.handle(IPC_CHANNELS.checkForUpdates, () => updates.checkForUpdates());
+
+  ipcMain.handle(IPC_CHANNELS.downloadUpdate, () => updates.downloadUpdate());
+
+  ipcMain.handle(IPC_CHANNELS.installUpdate, () => updates.installUpdate());
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -570,15 +630,28 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
   const preferences = await settings.load({ safeMode });
   nativeTheme.themeSource = preferences.theme;
 
-  const decoder = new DecoderLayer(cache);
+  const decoder = new DecoderLayer(cache, { safeMode });
   const library = new LibraryManager(decoder);
-  appRuntime = { cache, logger, settings, library };
+  const updates = new UpdateService(
+    {
+      isPackaged: app.isPackaged,
+      safeMode,
+      platform: process.platform,
+      appImagePath: process.env.APPIMAGE,
+      version: app.getVersion()
+    },
+    {
+      checkForUpdatesOnStartup: preferences.checkForUpdatesOnStartup
+    }
+  );
+  appRuntime = { cache, logger, settings, library, updates };
 
   registerImageProtocol(library, settings);
-  registerIpcHandlers(settings, library);
+  registerIpcHandlers(settings, library, updates);
 
   await ensureLegalFilesPresent();
   mainWindow = createWindow(preferences);
+  void updates.checkOnStartup();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

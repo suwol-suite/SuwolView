@@ -10,8 +10,10 @@ import type {
   PanelPreferences,
   Preferences,
   RecentSource,
-  ThemeMode
+  ThemeMode,
+  UpdatePreferences
 } from "../shared/types";
+import { logMain } from "./logging";
 
 const MAX_RECENT = 12;
 
@@ -19,6 +21,7 @@ export function defaultPreferences(): Preferences {
   return {
     theme: "dark",
     language: "system",
+    checkForUpdatesOnStartup: false,
     ...normalizeChromePreferences(),
     ...normalizePanelPreferences(),
     recent: []
@@ -39,6 +42,19 @@ function legacyBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function normalizeThemePreference(value: unknown): ThemeMode {
+  return value === "dark" || value === "light" ? value : defaultPreferences().theme;
+}
+
+function normalizeUpdatePreferences(input: Partial<UpdatePreferences> = {}): UpdatePreferences {
+  return {
+    checkForUpdatesOnStartup:
+      typeof input.checkForUpdatesOnStartup === "boolean"
+        ? input.checkForUpdatesOnStartup
+        : defaultPreferences().checkForUpdatesOnStartup
+  };
+}
+
 export class SettingsStore {
   private preferences = defaultPreferences();
   private readonly settingsPath: string;
@@ -50,6 +66,7 @@ export class SettingsStore {
   async load(options: { safeMode?: boolean } = {}): Promise<Preferences> {
     if (options.safeMode) {
       this.preferences = safeModePreferences();
+      logMain("Settings loaded in safe mode with default preferences");
       return this.get();
     }
 
@@ -59,7 +76,11 @@ export class SettingsStore {
       this.preferences = {
         ...defaultPreferences(),
         ...data,
+        theme: normalizeThemePreference(data.theme),
         language: normalizeLanguagePreference(data.language),
+        ...normalizeUpdatePreferences({
+          checkForUpdatesOnStartup: data.checkForUpdatesOnStartup
+        }),
         ...normalizeChromePreferences({
           topBarMode: data.topBarMode,
           bottomBarMode: data.bottomBarMode
@@ -75,7 +96,11 @@ export class SettingsStore {
     } catch (error) {
       this.preferences = defaultPreferences();
       if (!isMissingFileError(error)) {
-        await this.backupCorruptSettings();
+        const backupPath = await this.backupCorruptSettings();
+        logMain("Corrupt settings recovered with defaults", {
+          backupPath,
+          error: error instanceof Error ? error.message : String(error)
+        }, "warn");
       }
       await this.save();
     }
@@ -125,6 +150,18 @@ export class SettingsStore {
     return this.get();
   }
 
+  async updateUpdatePreferences(updatePreferences: Partial<UpdatePreferences>): Promise<Preferences> {
+    this.preferences = {
+      ...this.preferences,
+      ...normalizeUpdatePreferences({
+        ...this.preferences,
+        ...updatePreferences
+      })
+    };
+    await this.save();
+    return this.get();
+  }
+
   async addRecent(source: LibrarySource): Promise<Preferences> {
     const recentSource: RecentSource = {
       ...source,
@@ -148,13 +185,19 @@ export class SettingsStore {
     return this.get();
   }
 
-  private async backupCorruptSettings(): Promise<void> {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = `${this.settingsPath}.corrupt-${timestamp}.json`;
+  private async backupCorruptSettings(): Promise<string | undefined> {
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}Z$/, "")
+      .replace("T", "-");
+    const backupPath = path.join(path.dirname(this.settingsPath), `settings.corrupt-${timestamp}.json`);
     try {
       await rename(this.settingsPath, backupPath);
+      return backupPath;
     } catch {
       // If the file cannot be moved, still recreate defaults so the app can start.
+      return undefined;
     }
   }
 

@@ -4,8 +4,11 @@ import type {
   AppError,
   AppLanguageSetting,
   AppResult,
+  CacheMaintenanceResult,
+  CacheStats,
   ChromePreferences,
   ImageMetadata,
+  LogInfo,
   LocaleInfo,
   OpenLibraryResult,
   PanelPreferences,
@@ -13,7 +16,9 @@ import type {
   RendererLogEntry,
   RuntimeInfo,
   SuwolApi,
-  ThemeMode
+  ThemeMode,
+  UpdatePreferences,
+  UpdateState
 } from "../shared/types";
 
 const IPC_CHANNELS = {
@@ -28,6 +33,7 @@ const IPC_CHANNELS = {
   setTheme: "suwol:set-theme",
   updatePanelPreferences: "settings:update-panel-preferences",
   updateChromePreferences: "settings:update-chrome-preferences",
+  updateUpdatePreferences: "update:setPreferences",
   toggleFullscreen: "app:toggleFullscreen",
   setFullscreen: "app:setFullscreen",
   getFullscreenState: "app:getFullscreenState",
@@ -37,14 +43,21 @@ const IPC_CHANNELS = {
   copyExecutablePath: "app:copy-executable-path",
   getRuntimeInfo: "app:get-runtime-info",
   openLogsFolder: "app:open-logs-folder",
+  getLogInfo: "app:get-log-info",
   resetSettings: "settings:reset",
+  getCacheStats: "cache:get-stats",
   clearThumbnailCache: "cache:clear-thumbnails",
+  cleanupThumbnailCache: "cache:cleanup-thumbnails",
   restartInSafeMode: "app:restart-in-safe-mode",
   writeRendererLog: "app:write-renderer-log",
   rendererReady: "app:renderer-ready",
   openLibraryResult: "suwol:open-library-result",
   openError: "suwol:open-error",
-  getMetadata: "suwol:get-metadata"
+  getMetadata: "suwol:get-metadata",
+  getUpdateStatus: "update:getStatus",
+  checkForUpdates: "update:check",
+  downloadUpdate: "update:download",
+  installUpdate: "update:install"
 } as const satisfies typeof SharedIpcChannels;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -120,6 +133,7 @@ const api: SuwolApi = {
   setTheme: (theme: ThemeMode) => invokeIpc<Preferences>(IPC_CHANNELS.setTheme, theme),
   updatePanelPreferences: (state: Partial<PanelPreferences>) => invokeIpc<Preferences>(IPC_CHANNELS.updatePanelPreferences, state),
   updateChromePreferences: (state: Partial<ChromePreferences>) => invokeIpc<Preferences>(IPC_CHANNELS.updateChromePreferences, state),
+  updateUpdatePreferences: (state: Partial<UpdatePreferences>) => invokeIpc<Preferences>(IPC_CHANNELS.updateUpdatePreferences, state),
   toggleFullscreen: () => invokeIpc<boolean>(IPC_CHANNELS.toggleFullscreen),
   setFullscreen: (fullscreen: boolean) => invokeIpc<boolean>(IPC_CHANNELS.setFullscreen, fullscreen),
   getFullscreenState: () => invokeIpc<boolean>(IPC_CHANNELS.getFullscreenState),
@@ -128,13 +142,20 @@ const api: SuwolApi = {
   copyExecutablePath: () => invokeIpc<string>(IPC_CHANNELS.copyExecutablePath),
   getRuntimeInfo: () => invokeIpc<RuntimeInfo>(IPC_CHANNELS.getRuntimeInfo),
   openLogsFolder: () => invokeIpc<void>(IPC_CHANNELS.openLogsFolder),
+  getLogInfo: () => invokeIpc<LogInfo>(IPC_CHANNELS.getLogInfo),
   resetSettings: () => invokeIpc<Preferences>(IPC_CHANNELS.resetSettings),
-  clearThumbnailCache: () => invokeIpc<void>(IPC_CHANNELS.clearThumbnailCache),
+  getCacheStats: () => invokeIpc<CacheStats>(IPC_CHANNELS.getCacheStats),
+  clearThumbnailCache: () => invokeIpc<CacheMaintenanceResult>(IPC_CHANNELS.clearThumbnailCache),
+  cleanupThumbnailCache: () => invokeIpc<CacheMaintenanceResult>(IPC_CHANNELS.cleanupThumbnailCache),
   restartInSafeMode: () => invokeIpc<void>(IPC_CHANNELS.restartInSafeMode),
   writeRendererLog: (entry: RendererLogEntry) =>
     invokeIpc<void>(IPC_CHANNELS.writeRendererLog, normalizeRendererLogEntry(entry)),
   rendererReady: () => invokeIpc<void>(IPC_CHANNELS.rendererReady),
-  getMetadata: (itemId: string) => invokeIpc<AppResult<ImageMetadata>>(IPC_CHANNELS.getMetadata, itemId)
+  getMetadata: (itemId: string) => invokeIpc<AppResult<ImageMetadata>>(IPC_CHANNELS.getMetadata, itemId),
+  getUpdateStatus: () => invokeIpc<UpdateState>(IPC_CHANNELS.getUpdateStatus),
+  checkForUpdates: () => invokeIpc<AppResult<UpdateState>>(IPC_CHANNELS.checkForUpdates),
+  downloadUpdate: () => invokeIpc<AppResult<UpdateState>>(IPC_CHANNELS.downloadUpdate),
+  installUpdate: () => invokeIpc<AppResult<UpdateState>>(IPC_CHANNELS.installUpdate)
 };
 
 ipcRenderer.on(IPC_CHANNELS.openLibraryResult, (_event, payload: unknown) => {

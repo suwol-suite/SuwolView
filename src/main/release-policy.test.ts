@@ -13,9 +13,17 @@ describe("release policy", () => {
   it("keeps maintenance IPC channels explicit", () => {
     expect(IPC_CHANNELS.getRuntimeInfo).toBe("app:get-runtime-info");
     expect(IPC_CHANNELS.openLogsFolder).toBe("app:open-logs-folder");
+    expect(IPC_CHANNELS.getLogInfo).toBe("app:get-log-info");
     expect(IPC_CHANNELS.resetSettings).toBe("settings:reset");
+    expect(IPC_CHANNELS.getCacheStats).toBe("cache:get-stats");
     expect(IPC_CHANNELS.clearThumbnailCache).toBe("cache:clear-thumbnails");
+    expect(IPC_CHANNELS.cleanupThumbnailCache).toBe("cache:cleanup-thumbnails");
     expect(IPC_CHANNELS.restartInSafeMode).toBe("app:restart-in-safe-mode");
     expect(IPC_CHANNELS.writeRendererLog).toBe("app:write-renderer-log");
+    expect(IPC_CHANNELS.updateUpdatePreferences).toBe("update:setPreferences");
+    expect(IPC_CHANNELS.getUpdateStatus).toBe("update:getStatus");
+    expect(IPC_CHANNELS.checkForUpdates).toBe("update:check");
+    expect(IPC_CHANNELS.downloadUpdate).toBe("update:download");
+    expect(IPC_CHANNELS.installUpdate).toBe("update:install");
   });
 });

@@ -188,6 +188,10 @@ export class LibraryManager {
     return this.decoder.readMetadata(this.getItem(itemId));
   }
 
+  clearMetadataFailureCache(): void {
+    this.decoder.clearMetadataFailureCache();
+  }
+
   hasCurrentItem(itemId: string): boolean {
     return this.current?.itemMap.has(itemId) ?? false;
   }

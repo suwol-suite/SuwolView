@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 
 const external = [
   "electron",
+  "electron-updater",
   "exifr",
   "sharp",
   "yauzl",

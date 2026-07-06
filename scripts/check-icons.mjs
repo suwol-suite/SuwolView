@@ -29,8 +29,20 @@ async function checkPng(fileName, expectedSize) {
   }
 }
 
-if (!(await fileExists(path.join(assetsDir, "icon.svg")))) {
-  failures.push("Missing icon source: assets/icon.svg");
+const sourcePath = path.join(assetsDir, "icon-source.png");
+if (!(await fileExists(sourcePath))) {
+  failures.push("Missing icon source: assets/icon-source.png");
+} else {
+  const sourceMetadata = await sharp(sourcePath).metadata();
+  if (sourceMetadata.format !== "png") {
+    failures.push("assets/icon-source.png must be a PNG file.");
+  }
+  if (sourceMetadata.width !== sourceMetadata.height) {
+    failures.push("assets/icon-source.png must be square.");
+  }
+  if ((sourceMetadata.width ?? 0) < 1024 || (sourceMetadata.height ?? 0) < 1024) {
+    failures.push("assets/icon-source.png must be at least 1024x1024.");
+  }
 }
 
 for (const size of requiredPngSizes) {

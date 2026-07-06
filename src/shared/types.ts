@@ -63,7 +63,34 @@ export interface ChromePreferences {
   bottomBarMode: ChromeBarMode;
 }
 
-export interface Preferences extends PanelPreferences, ChromePreferences {
+export interface UpdatePreferences {
+  checkForUpdatesOnStartup: boolean;
+}
+
+export type UpdateStatus =
+  | "idle"
+  | "unsupported"
+  | "disabled"
+  | "checking"
+  | "available"
+  | "not-available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface UpdateState {
+  status: UpdateStatus;
+  supported: boolean;
+  updateAvailable: boolean;
+  downloaded: boolean;
+  version?: string;
+  latestVersion?: string;
+  releaseName?: string;
+  error?: AppError;
+  progressPercent?: number;
+}
+
+export interface Preferences extends PanelPreferences, ChromePreferences, UpdatePreferences {
   theme: ThemeMode;
   language: AppLanguageSetting;
   recent: RecentSource[];
@@ -98,6 +125,30 @@ export interface RuntimeInfo {
   safeMode: boolean;
 }
 
+export interface LogFileInfo {
+  name: string;
+  path: string;
+  sizeBytes: number;
+  modifiedAt?: string;
+}
+
+export interface LogInfo {
+  logDir: string;
+  files: LogFileInfo[];
+}
+
+export interface CacheStats {
+  thumbnailEntries: number;
+  thumbnailSizeBytes: number;
+  cacheSizeBytes: number;
+}
+
+export interface CacheMaintenanceResult {
+  stats: CacheStats;
+  removedEntries: number;
+  removedBytes: number;
+}
+
 export interface RendererLogEntry {
   level?: "info" | "warn" | "error";
   message: string;
@@ -117,6 +168,7 @@ export interface SuwolApi {
   setTheme: (theme: ThemeMode) => Promise<Preferences>;
   updatePanelPreferences: (state: Partial<PanelPreferences>) => Promise<Preferences>;
   updateChromePreferences: (state: Partial<ChromePreferences>) => Promise<Preferences>;
+  updateUpdatePreferences: (state: Partial<UpdatePreferences>) => Promise<Preferences>;
   toggleFullscreen: () => Promise<boolean>;
   setFullscreen: (fullscreen: boolean) => Promise<boolean>;
   getFullscreenState: () => Promise<boolean>;
@@ -125,10 +177,17 @@ export interface SuwolApi {
   copyExecutablePath: () => Promise<string>;
   getRuntimeInfo: () => Promise<RuntimeInfo>;
   openLogsFolder: () => Promise<void>;
+  getLogInfo: () => Promise<LogInfo>;
   resetSettings: () => Promise<Preferences>;
-  clearThumbnailCache: () => Promise<void>;
+  getCacheStats: () => Promise<CacheStats>;
+  clearThumbnailCache: () => Promise<CacheMaintenanceResult>;
+  cleanupThumbnailCache: () => Promise<CacheMaintenanceResult>;
   restartInSafeMode: () => Promise<void>;
   writeRendererLog: (entry: RendererLogEntry) => Promise<void>;
   rendererReady: () => Promise<void>;
   getMetadata: (itemId: string) => Promise<AppResult<ImageMetadata>>;
+  getUpdateStatus: () => Promise<UpdateState>;
+  checkForUpdates: () => Promise<AppResult<UpdateState>>;
+  downloadUpdate: () => Promise<AppResult<UpdateState>>;
+  installUpdate: () => Promise<AppResult<UpdateState>>;
 }

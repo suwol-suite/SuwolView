@@ -41,7 +41,12 @@ jobs:
           else
             ASOUND_PACKAGE=libasound2
           fi
-          sudo apt-get install -y libgtk-3-0 libnss3 libxss1 "$ASOUND_PACKAGE" libgbm1
+          if apt-cache show libfuse2t64 >/dev/null 2>&1; then
+            FUSE_PACKAGE=libfuse2t64
+          else
+            FUSE_PACKAGE=libfuse2
+          fi
+          sudo apt-get install -y libgtk-3-0 libnss3 libxss1 "$ASOUND_PACKAGE" "$FUSE_PACKAGE" libgbm1
 
       - name: Install
         run: npm ci
@@ -58,7 +63,7 @@ jobs:
           if [ "${{ matrix.platform }}" = "win" ]; then
             npm run dist -- --win zip nsis --publish never
           else
-            npm run dist -- --linux zip --publish never
+            npm run dist -- --linux AppImage tar.gz --publish never
           fi
 
       - name: Collect release artifact
@@ -92,8 +97,56 @@ jobs:
 
       - name: Create checksums
         run: |
+          set -euo pipefail
           cd release-downloads
-          sha256sum SuwolView-* > SHA256SUMS.txt
+          find . -maxdepth 1 -type f \( \
+            -name "SuwolView-*.AppImage" -o \
+            -name "SuwolView-*.tar.gz" -o \
+            -name "SuwolView-*.deb" -o \
+            -name "SuwolView-*.rpm" -o \
+            -name "SuwolView-*.zip" -o \
+            -name "SuwolView-*.exe" -o \
+            -name "latest*.yml" \
+          \) -print0 | sort -z | xargs -0 -r sha256sum > checksums.txt
+          test -s checksums.txt
+          cat checksums.txt
+
+      - name: Import GPG private key
+        env:
+          GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PRIVATE_KEY_B64"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/suwol-release-private-key.asc"
+          gpg --batch --import "$RUNNER_TEMP/suwol-release-private-key.asc"
+          rm -f "$RUNNER_TEMP/suwol-release-private-key.asc"
+
+      - name: Sign checksums
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PASSPHRASE"
+          cd release-downloads
+          printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 \
+            --armor --detach-sign checksums.txt
+          test -s checksums.txt.asc
+
+      - name: Verify GPG signature and checksums
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -s suwol-release-public-key.asc
+          gpg --import suwol-release-public-key.asc
+          cd release-downloads
+          gpg --verify checksums.txt.asc checksums.txt
+          sha256sum -c checksums.txt
 
       - name: Write release notes
         run: |
@@ -105,9 +158,9 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release-downloads/SuwolView-* release-downloads/SHA256SUMS.txt --clobber
+            gh release upload "$TAG_NAME" release-downloads/SuwolView-* release-downloads/latest*.yml release-downloads/checksums.txt release-downloads/checksums.txt.asc suwol-release-public-key.asc --clobber
           else
-            gh release create "$TAG_NAME" release-downloads/SuwolView-* release-downloads/SHA256SUMS.txt \
+            gh release create "$TAG_NAME" release-downloads/SuwolView-* release-downloads/latest*.yml release-downloads/checksums.txt release-downloads/checksums.txt.asc suwol-release-public-key.asc \
               --title "SuwolView ${TAG_NAME#v}" \
               --notes-file release-notes.md
           fi

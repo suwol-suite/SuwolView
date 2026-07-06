@@ -13,44 +13,91 @@ const outputDir = path.join(root, "release-artifacts");
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const version = packageJson.version;
 
-function zipPlatformPattern(name) {
-  if (!/\.zip$/i.test(name)) return false;
-  if (platform === "win") return /win/i.test(name);
-  return /linux/i.test(name) || !/win/i.test(name);
+function artifactMatchesPlatform(name) {
+  if (platform === "win") {
+    return (
+      name === `SuwolView-${version}-setup.exe` ||
+      new RegExp(`^SuwolView-${escapeRegExp(version)}-win-x64\\.zip$`, "i").test(name)
+    );
+  }
+
+  return new RegExp(
+    `^SuwolView-${escapeRegExp(version)}-linux-x64\\.(?:AppImage|tar\\.gz|deb|rpm)$`,
+    "i"
+  ).test(name);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 const entries = await readdir(releaseDir, { withFileTypes: true });
 const candidates = [];
 for (const entry of entries) {
-  if (!entry.isFile() || !zipPlatformPattern(entry.name)) continue;
+  if (!entry.isFile() || !artifactMatchesPlatform(entry.name)) continue;
   const fullPath = path.join(releaseDir, entry.name);
   candidates.push({ fullPath, stats: await stat(fullPath) });
 }
 
 if (candidates.length === 0) {
-  console.error(`No ${platform} ZIP artifact found in release/.`);
+  console.error(`No ${platform} release artifact found in release/.`);
   process.exit(1);
 }
 
-candidates.sort((left, right) => right.stats.mtimeMs - left.stats.mtimeMs);
-
 await mkdir(outputDir, { recursive: true });
 
-const outputName = `SuwolView-${version}-${platform}-x64.zip`;
-const outputPath = path.join(outputDir, outputName);
-await copyFile(candidates[0].fullPath, outputPath);
+for (const candidate of candidates.sort((left, right) => left.fullPath.localeCompare(right.fullPath))) {
+  const outputPath = path.join(outputDir, path.basename(candidate.fullPath));
+  await copyFile(candidate.fullPath, outputPath);
+  console.log(`Collected ${path.relative(root, outputPath)}.`);
+}
 
-console.log(`Collected ${path.relative(root, outputPath)}.`);
+const requiredLinuxExtensions = [".AppImage", ".tar.gz"];
+if (platform === "linux") {
+  for (const extension of requiredLinuxExtensions) {
+    if (!candidates.some((candidate) => path.basename(candidate.fullPath).endsWith(extension))) {
+      console.error(`Missing Linux ${extension} artifact in release/.`);
+      process.exit(1);
+    }
+  }
+}
+
+if (platform === "win" && !candidates.some((candidate) => path.basename(candidate.fullPath) === `SuwolView-${version}-setup.exe`)) {
+  console.error(`Missing Windows NSIS installer in release/.`);
+  process.exit(1);
+}
+
+async function copyIfPresent(fileName, options = {}) {
+  const sourcePath = path.join(releaseDir, fileName);
+  const fileStats = await stat(sourcePath).catch(() => undefined);
+  if (!fileStats?.isFile()) {
+    if (options.required) {
+      console.error(`Missing required release metadata: release/${fileName}.`);
+      process.exit(1);
+    }
+    console.warn(`Release metadata not found, skipping: release/${fileName}.`);
+    return;
+  }
+
+  const outputPath = path.join(outputDir, fileName);
+  await copyFile(sourcePath, outputPath);
+  console.log(`Collected ${path.relative(root, outputPath)}.`);
+}
+
+if (platform === "linux") {
+  await copyIfPresent("latest-linux.yml", { required: true });
+}
 
 if (platform === "win") {
-  const installerName = `SuwolView-${version}-setup.exe`;
-  const installerPath = path.join(releaseDir, installerName);
-  const installerStats = await stat(installerPath).catch(() => undefined);
-  if (!installerStats?.isFile()) {
-    console.error(`No Windows NSIS installer found at release/${installerName}.`);
-    process.exit(1);
-  }
-  const installerOutputPath = path.join(outputDir, installerName);
-  await copyFile(installerPath, installerOutputPath);
-  console.log(`Collected ${path.relative(root, installerOutputPath)}.`);
+  await copyIfPresent("latest.yml", { required: false });
 }
+
+const publicKeyPath = path.join(root, "suwol-release-public-key.asc");
+const publicKeyStats = await stat(publicKeyPath).catch(() => undefined);
+if (!publicKeyStats?.isFile()) {
+  console.error("Missing public release key: suwol-release-public-key.asc.");
+  process.exit(1);
+}
+const publicKeyOutputPath = path.join(outputDir, "suwol-release-public-key.asc");
+await copyFile(publicKeyPath, publicKeyOutputPath);
+console.log(`Collected ${path.relative(root, publicKeyOutputPath)}.`);

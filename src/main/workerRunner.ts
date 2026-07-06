@@ -2,7 +2,7 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import type { ResourceLimits } from "node:worker_threads";
 import type { WorkerResponse } from "./libraryTypes";
-import { logMain } from "./logging";
+import { logWorker } from "./logging";
 
 export function electronWorkerPath(workerFileName: string): string {
   return path.join(__dirname, workerFileName);
@@ -47,7 +47,7 @@ export function runWorker<Request, Response>(
     let settled = false;
     const timeout = options.timeoutMs
       ? windowlessSetTimeout(() => {
-          logMain("Worker timed out", { worker: path.basename(workerPath), timeoutMs: options.timeoutMs }, "warn");
+          logWorker("Worker timed out", { worker: path.basename(workerPath), timeoutMs: options.timeoutMs });
           void finish(() => {
             reject(new WorkerRunError("WORKER_TIMEOUT", `Worker timed out after ${options.timeoutMs}ms.`));
           });
@@ -71,6 +71,7 @@ export function runWorker<Request, Response>(
         } else if (message.ok) {
           resolve(undefined as Response);
         } else {
+          logWorker("Worker returned a failure", { worker: path.basename(workerPath), error: message.error });
           reject(new WorkerRunError("WORKER_FAILED", message.error ?? "Worker failed."));
         }
       });
@@ -78,13 +79,13 @@ export function runWorker<Request, Response>(
 
     worker.on("error", (error: unknown) => {
       const workerError = error instanceof Error ? error : new Error(String(error));
-      logMain("Worker emitted an error", { worker: path.basename(workerPath), error: workerError }, "warn");
+      logWorker("Worker emitted an error", { worker: path.basename(workerPath), error: workerError });
       void finish(() => reject(new WorkerRunError(workerErrorCode(workerError), workerError.message, { cause: workerError })));
     });
 
     worker.on("exit", (code) => {
       if (!settled && code !== 0) {
-        logMain("Worker exited unexpectedly", { worker: path.basename(workerPath), code }, "warn");
+        logWorker("Worker exited unexpectedly", { worker: path.basename(workerPath), code });
         void finish(() => reject(new WorkerRunError("WORKER_EXITED", `Worker exited with code ${code}.`)));
       }
     });

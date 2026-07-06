@@ -16,8 +16,10 @@ const requiredProjectFiles = [
   "docs/third-party-policy.md",
   "docs/lgpl-compliance.md",
   "docs/security-policy.md",
+  "docs/manual-qc-0.2.0.md",
   "docs/release-notes-0.2.0.md",
-  "assets/icon.svg",
+  "suwol-release-public-key.asc",
+  "assets/icon-source.png",
   "assets/icon.ico",
   "assets/icon.png"
 ];
@@ -31,7 +33,18 @@ const requiredPackagedResources = [
   "resources/docs/third-party-policy.md",
   "resources/docs/lgpl-compliance.md",
   "resources/docs/security-policy.md",
-  "resources/docs/release-notes-0.2.0.md"
+  "resources/docs/manual-qc-0.2.0.md",
+  "resources/docs/release-notes-0.2.0.md",
+  "resources/icon.ico",
+  "resources/icon.png"
+];
+
+const forbiddenReleaseFilePatterns = [
+  /private/i,
+  /revocation/i,
+  /passphrase/i,
+  /\.gpg$/i,
+  /\.key$/i
 ];
 
 const failures = [];
@@ -220,6 +233,61 @@ async function checkPackagedZips(buildMtime) {
   }
 }
 
+async function assertNoForbiddenReleaseFiles(directoryPath) {
+  if (!(await exists(directoryPath))) return;
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      await assertNoForbiddenReleaseFiles(fullPath);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (forbiddenReleaseFilePatterns.some((pattern) => pattern.test(entry.name))) {
+      failures.push(`Forbidden release secret-like file found: ${path.relative(root, fullPath)}`);
+    }
+  }
+}
+
+async function checkLinuxReleaseArtifacts(buildMtime) {
+  const releaseDir = path.join(root, "release");
+  if (!(await exists(releaseDir))) {
+    return;
+  }
+
+  const expectedFiles = [
+    `SuwolView-${packageVersion}-linux-x64.AppImage`,
+    `SuwolView-${packageVersion}-linux-x64.tar.gz`,
+    "latest-linux.yml"
+  ];
+
+  let foundAny = false;
+  const missingExpectedFiles = [];
+  for (const fileName of expectedFiles) {
+    const fullPath = path.join(releaseDir, fileName);
+    if (!(await exists(fullPath))) {
+      missingExpectedFiles.push(fileName);
+      continue;
+    }
+    foundAny = true;
+    const artifactStats = await stat(fullPath);
+    if (artifactStats.mtimeMs < buildMtime) {
+      failures.push(`Linux artifact is older than the latest build: ${path.relative(root, fullPath)}`);
+    }
+    if (artifactStats.size <= 0) {
+      failures.push(`Linux artifact is empty: ${path.relative(root, fullPath)}`);
+    }
+    notes.push(`Inspected Linux artifact: ${path.relative(root, fullPath)}`);
+  }
+
+  const hasLinuxArtifact = (await readdir(releaseDir, { withFileTypes: true })).some(
+    (entry) => entry.isFile() && /^SuwolView-.+-linux-x64\.(?:AppImage|tar\.gz|deb|rpm)$/i.test(entry.name)
+  );
+  if (hasLinuxArtifact && (!foundAny || missingExpectedFiles.length > 0)) {
+    failures.push(`Linux release build missing required files: ${missingExpectedFiles.join(", ")}`);
+  }
+}
+
 async function checkWindowsInstaller(buildMtime) {
   const releaseDir = path.join(root, "release");
   const expectedInstaller = path.join(releaseDir, `SuwolView-${packageVersion}-setup.exe`);
@@ -242,6 +310,9 @@ async function checkWindowsInstaller(buildMtime) {
 const buildMtime = await outputMtime();
 await checkWinUnpacked(buildMtime);
 await checkPackagedZips(buildMtime);
+await checkLinuxReleaseArtifacts(buildMtime);
+await assertNoForbiddenReleaseFiles(path.join(root, "release"));
+await assertNoForbiddenReleaseFiles(path.join(root, "release-artifacts"));
 
 for (const note of notes) {
   console.log(note);

@@ -4,6 +4,12 @@ artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 copyright: Copyright (c) 2026 SuwolView contributors
 icon: assets/icon
 
+publish:
+  provider: github
+  owner: suwol-suite
+  repo: SuwolView
+  releaseType: release
+
 directories:
   output: release
   buildResources: assets
@@ -29,6 +35,10 @@ extraResources:
     to: README.md
   - from: docs
     to: docs
+  - from: assets/icon.ico
+    to: icon.ico
+  - from: assets/icon.png
+    to: icon.png
 
 asar: true
 asarUnpack:
@@ -113,6 +123,9 @@ linux:
   category: Graphics
   icon: assets/icon.png
   target:
-    - target: zip
+    - target: AppImage
+      arch:
+        - x64
+    - target: tar.gz
       arch:
         - x64

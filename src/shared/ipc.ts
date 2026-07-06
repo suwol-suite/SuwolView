@@ -10,6 +10,7 @@ export const IPC_CHANNELS = {
   setTheme: "suwol:set-theme",
   updatePanelPreferences: "settings:update-panel-preferences",
   updateChromePreferences: "settings:update-chrome-preferences",
+  updateUpdatePreferences: "update:setPreferences",
   toggleFullscreen: "app:toggleFullscreen",
   setFullscreen: "app:setFullscreen",
   getFullscreenState: "app:getFullscreenState",
@@ -19,14 +20,21 @@ export const IPC_CHANNELS = {
   copyExecutablePath: "app:copy-executable-path",
   getRuntimeInfo: "app:get-runtime-info",
   openLogsFolder: "app:open-logs-folder",
+  getLogInfo: "app:get-log-info",
   resetSettings: "settings:reset",
+  getCacheStats: "cache:get-stats",
   clearThumbnailCache: "cache:clear-thumbnails",
+  cleanupThumbnailCache: "cache:cleanup-thumbnails",
   restartInSafeMode: "app:restart-in-safe-mode",
   writeRendererLog: "app:write-renderer-log",
   rendererReady: "app:renderer-ready",
   openLibraryResult: "suwol:open-library-result",
   openError: "suwol:open-error",
-  getMetadata: "suwol:get-metadata"
+  getMetadata: "suwol:get-metadata",
+  getUpdateStatus: "update:getStatus",
+  checkForUpdates: "update:check",
+  downloadUpdate: "update:download",
+  installUpdate: "update:install"
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

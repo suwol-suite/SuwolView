@@ -21,21 +21,38 @@ one release.
 - Tab toggles the right information panel from the viewer surface.
 - Metadata worker OOM protection.
 - Safer metadata failure handling.
-- Crash and error log files under the app user data directory.
-- Settings reset, thumbnail cache reset, and safe mode launch option.
+- Crash, renderer, worker, and main log files under the app user data directory.
+- Log rotation at about 2 MB with up to 5 backups per log.
+- Settings reset with confirmation, corrupt settings recovery, thumbnail cache
+  maintenance, cache statistics, and safe mode launch option.
+- Safe mode reduces background metadata/cache work and skips launch-item
+  recovery.
 - Package smoke tests and release artifact checks.
 
 ## Downloads
 
 - Windows installer: `SuwolView-0.2.0-setup.exe`
 - Windows portable: `SuwolView-0.2.0-win-x64.zip`
-- Linux portable: `SuwolView-0.2.0-linux-x64.zip`
+- Linux AppImage: `SuwolView-0.2.0-linux-x64.AppImage`
+- Linux portable archive: `SuwolView-0.2.0-linux-x64.tar.gz`
+- Linux update metadata: `latest-linux.yml`
+- Signed checksums: `checksums.txt` and `checksums.txt.asc`
+
+## Linux
+
+- AppImage build.
+- tar.gz portable archive.
+- `latest-linux.yml` update metadata.
+- `checksums.txt` and detached GPG signature.
+- Public release key included.
+- AppImage is the intended Linux in-app update path.
+- tar.gz remains manual update only.
 
 ## Notes
 
 - Windows installer is recommended for normal Windows users.
 - ZIP builds are portable.
-- Automatic updates are not enabled yet.
+- Startup update checks are off by default and Safe Mode disables update checks.
 - macOS builds are not included yet.
 - Logs may include local file paths, but they do not intentionally store image
   file contents or raw metadata.

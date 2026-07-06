@@ -53,7 +53,10 @@ export class DecoderLayer {
   private readonly metadataQueue = new TaskQueue(1);
   private readonly thumbnailQueue = new TaskQueue(2);
 
-  constructor(private readonly cache: CachePaths) {}
+  constructor(
+    private readonly cache: CachePaths,
+    private readonly options: { safeMode?: boolean } = {}
+  ) {}
 
   async resolveDisplayFile(item: InternalLibraryItem): Promise<ResolvedImageFile> {
     const support = getImageSupport(item.extension);
@@ -92,6 +95,13 @@ export class DecoderLayer {
   }
 
   async readMetadata(item: InternalLibraryItem): Promise<AppResult<ImageMetadata>> {
+    if (this.options.safeMode) {
+      return failedResult({
+        code: "METADATA_SKIPPED_SAFE_MODE",
+        messageKey: "errors.metadataSkippedSafeMode"
+      });
+    }
+
     const cacheKey = `${item.id}:${item.cacheKey}`;
     const cached = this.metadataCache.get(cacheKey);
     if (cached) return { ok: true, data: cached };
@@ -135,6 +145,10 @@ export class DecoderLayer {
       this.metadataFailureCache.set(cacheKey, failure);
       return failedResult(failure);
     }
+  }
+
+  clearMetadataFailureCache(): void {
+    this.metadataFailureCache.clear();
   }
 
   private async createThumbnail(item: InternalLibraryItem, thumbnailPath: string): Promise<ResolvedImageFile> {

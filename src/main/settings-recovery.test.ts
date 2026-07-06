@@ -24,8 +24,34 @@ describe("settings recovery", () => {
     const files = await readdir(tempDir);
 
     expect(preferences.theme).toBe("dark");
-    expect(files.some((file) => /^settings\.json\.corrupt-.+\.json$/.test(file))).toBe(true);
+    expect(files.some((file) => /^settings\.corrupt-\d{8}-\d{6}\.json$/.test(file))).toBe(true);
     expect(JSON.parse(await readFile(path.join(tempDir, "settings.json"), "utf8")).theme).toBe("dark");
+  });
+
+  it("normalizes invalid settings values instead of keeping unsafe preferences", async () => {
+    await writeFile(
+      path.join(tempDir, "settings.json"),
+      JSON.stringify({
+        theme: "neon",
+        language: "zz",
+        topBarMode: "floating",
+        leftPanelVisible: "yes",
+        leftPanelWidth: 99999,
+        rightPanelWidth: -1,
+        recent: []
+      }),
+      "utf8"
+    );
+
+    const store = new SettingsStore(tempDir);
+    const preferences = await store.load();
+
+    expect(preferences.theme).toBe("dark");
+    expect(preferences.language).toBe("system");
+    expect(preferences.topBarMode).toBe("auto");
+    expect(preferences.leftPanelVisible).toBe(false);
+    expect(preferences.leftPanelWidth).toBe(520);
+    expect(preferences.rightPanelWidth).toBe(240);
   });
 
   it("uses safe mode defaults without persisting over existing settings", async () => {

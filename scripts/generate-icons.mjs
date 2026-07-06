@@ -5,22 +5,22 @@ import sharp from "sharp";
 
 const root = process.cwd();
 const assetsDir = path.join(root, "assets");
-const sourcePath = path.join(assetsDir, "icon.svg");
-const sourceSvg = await readFile(sourcePath, "utf8");
+const sourcePath = path.join(assetsDir, "icon-source.png");
+const sourceIcon = await readFile(sourcePath);
 const pngSizes = [16, 32, 48, 64, 128, 256, 512, 1024];
 const icoSizes = [16, 24, 32, 48, 64, 128, 256];
 
 await mkdir(assetsDir, { recursive: true });
 
 async function pngBuffer(size) {
-  return sharp(Buffer.from(sourceSvg)).resize(size, size).png().toBuffer();
+  return sharp(sourceIcon).resize(size, size).png().toBuffer();
 }
 
 for (const size of pngSizes) {
-  await sharp(Buffer.from(sourceSvg)).resize(size, size).png().toFile(path.join(assetsDir, `icon-${size}.png`));
+  await sharp(sourceIcon).resize(size, size).png().toFile(path.join(assetsDir, `icon-${size}.png`));
 }
 
-await sharp(Buffer.from(sourceSvg)).resize(512, 512).png().toFile(path.join(assetsDir, "icon.png"));
+await sharp(sourceIcon).resize(512, 512).png().toFile(path.join(assetsDir, "icon.png"));
 
 const icoFrames = await Promise.all(
   icoSizes.map(async (size) => ({
@@ -92,7 +92,7 @@ async function generateIcnsOnMac() {
   ];
 
   for (const [fileName, size] of iconsetFiles) {
-    await sharp(Buffer.from(sourceSvg)).resize(size, size).png().toFile(path.join(iconsetDir, fileName));
+    await sharp(sourceIcon).resize(size, size).png().toFile(path.join(iconsetDir, fileName));
   }
 
   await run("iconutil", ["-c", "icns", iconsetDir, "-o", path.join(assetsDir, "icon.icns")]);

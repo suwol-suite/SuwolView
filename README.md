@@ -38,7 +38,7 @@ image viewer product.
 - File information and EXIF/basic metadata panel
 - Metadata extraction runs with file-size, timeout, and worker memory limits so
   metadata failures do not block image viewing
-- Crash/error logs, settings reset, thumbnail cache reset, and safe mode launch
+- Crash/error logs, settings reset, cache maintenance, and safe mode launch
   for recovery
 
 ## Support Levels
@@ -79,9 +79,15 @@ Recommended downloads:
 
 - Windows installer: `SuwolView-0.2.0-setup.exe`
 - Windows portable ZIP: `SuwolView-0.2.0-win-x64.zip`
-- Linux portable ZIP: `SuwolView-0.2.0-linux-x64.zip`
+- Linux AppImage: `SuwolView-0.2.0-linux-x64.AppImage`
+- Linux portable tar.gz: `SuwolView-0.2.0-linux-x64.tar.gz`
 
-Automatic updates are not enabled yet.
+Startup update checks are not enabled by default.
+
+Linux AppImage builds are the intended path for in-app update checks and
+downloads. Linux tar.gz builds are portable/manual packages and must be updated
+manually. Update checks are not forced, startup update checks are off by
+default, and Safe Mode disables update checks.
 
 For local development:
 
@@ -185,16 +191,23 @@ SuwolView writes best-effort diagnostic logs under the app user data directory:
 - `logs/main.log`
 - `logs/renderer.log`
 - `logs/crash.log`
+- `logs/worker.log`
 
 Logs can include local file paths for troubleshooting, but they do not
 intentionally store image file contents or raw metadata blocks.
+Each log file is rotated at about 2 MB with up to 5 backups.
 
 The settings panel includes maintenance actions:
 
 - Open logs folder
 - Reset settings
 - Clear thumbnail cache
+- Clean old cache
 - Restart in safe mode
+
+Reset settings asks for confirmation before replacing saved preferences with
+defaults. Cache maintenance updates the displayed thumbnail cache size and
+entry count after each operation.
 
 Safe mode can also be launched from a terminal:
 
@@ -202,9 +215,13 @@ Safe mode can also be launched from a terminal:
 SuwolView.exe --safe-mode
 ```
 
-Safe mode starts with the default image-first layout, skips launch-item auto
-open, keeps side panels hidden, and allows the app to start even when stored
-settings need recovery.
+Safe mode:
+Run SuwolView with --safe-mode to start with safer defaults, skip session
+recovery, and reduce background metadata/cache work.
+
+If `settings.json` cannot be parsed, SuwolView backs it up as
+`settings.corrupt-YYYYMMDD-HHMMSS.json`, recreates defaults, and logs the
+recovery.
 
 ## Language Support
 
@@ -231,12 +248,49 @@ Release workflows are configured to produce:
 
 - Windows NSIS installer
 - Windows ZIP
-- Linux ZIP
-- `SHA256SUMS.txt`
+- Linux AppImage
+- Linux tar.gz
+- `checksums.txt`
+- `checksums.txt.asc`
+- `suwol-release-public-key.asc`
+- `latest-linux.yml`
 - Release notes based on `docs/release-notes-0.2.0.md`
 
 The current locally verified Windows targets are the NSIS installer and ZIP
-package. Linux ZIP is built by GitHub Actions.
+package. Linux AppImage and tar.gz artifacts are built by GitHub Actions.
+
+AppImage is the Linux package intended for in-app update checks and downloads.
+The tar.gz package is for manual portable use.
+
+### Checksum Verification
+
+Linux release verification uses the SuwolView release public key and signed
+checksum files when they are provided with a release.
+
+Import the release public key once:
+
+```sh
+gpg --import suwol-release-public-key.asc
+```
+
+Verify the checksum signature, then verify downloaded files:
+
+```sh
+gpg --verify checksums.txt.asc checksums.txt
+sha256sum -c checksums.txt
+```
+
+On macOS, use:
+
+```sh
+shasum -a 256 -c checksums.txt
+```
+
+To check a single downloaded file on macOS:
+
+```sh
+shasum -a 256 <file>
+```
 
 ## License Policy
 
@@ -288,6 +342,8 @@ Current metadata safety limits:
 Large or unsafe metadata blocks may be skipped or truncated.
 
 More detail is available in `docs/security-policy.md`.
+
+Manual release checks are tracked in `docs/manual-qc-0.2.0.md`.
 
 ## Contributing
 

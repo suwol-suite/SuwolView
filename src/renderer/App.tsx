@@ -1,5 +1,6 @@
 import {
   Copy,
+  Download,
   FolderCog,
   ExternalLink,
   FileImage,
@@ -13,6 +14,8 @@ import {
   Moon,
   PanelLeft,
   PanelRight,
+  Power,
+  RefreshCw,
   RotateCcw,
   RotateCw,
   Rows3,
@@ -43,6 +46,7 @@ import {
 import type {
   AppLanguageSetting,
   AppError,
+  CacheStats,
   ChromeBarMode,
   ImageMetadata,
   LibraryItem,
@@ -52,6 +56,7 @@ import type {
   RecentSource,
   RuntimeInfo,
   ThemeMode,
+  UpdateState,
   ViewMode
 } from "../shared/types";
 
@@ -94,7 +99,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function formatBytes(value: number | undefined, unknownLabel: string): string {
-  if (!value) return unknownLabel;
+  if (value === undefined || value === null) return unknownLabel;
   const units = ["B", "KB", "MB", "GB"];
   let size = value;
   let unitIndex = 0;
@@ -172,6 +177,9 @@ export function App(): React.ReactElement {
   const [localeInfo, setLocaleInfo] = useState<LocaleInfo | undefined>();
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | undefined>();
+  const [cacheStats, setCacheStats] = useState<CacheStats | undefined>();
+  const [updateStatus, setUpdateStatus] = useState<UpdateState | undefined>();
+  const [checkForUpdatesOnStartup, setCheckForUpdatesOnStartup] = useState(false);
   const [leftPanelVisible, setLeftPanelVisible] = useState(DEFAULT_PANEL_PREFERENCES.leftPanelVisible);
   const [rightPanelVisible, setRightPanelVisible] = useState(DEFAULT_PANEL_PREFERENCES.rightPanelVisible);
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_PANEL_PREFERENCES.leftPanelWidth);
@@ -306,6 +314,7 @@ export function App(): React.ReactElement {
     setRightPanelVisible(preferences.rightPanelVisible);
     setLeftPanelWidth(preferences.leftPanelWidth);
     setRightPanelWidth(preferences.rightPanelWidth);
+    setCheckForUpdatesOnStartup(preferences.checkForUpdatesOnStartup);
     setRecent(preferences.recent);
     await i18n.changeLanguage(resolveAppLanguage(nextLanguage, localeCandidates(nextLocaleInfo)));
   }, [localeInfo]);
@@ -443,10 +452,24 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (preferencesLoadStartedRef.current) return;
     preferencesLoadStartedRef.current = true;
-    void Promise.all([window.suwol.getPreferences(), window.suwol.getLocaleInfo(), window.suwol.getRuntimeInfo()])
-      .then(async ([preferences, nextLocaleInfo, nextRuntimeInfo]: [Preferences, LocaleInfo, RuntimeInfo]) => {
+    void Promise.all([
+      window.suwol.getPreferences(),
+      window.suwol.getLocaleInfo(),
+      window.suwol.getRuntimeInfo(),
+      window.suwol.getCacheStats(),
+      window.suwol.getUpdateStatus()
+    ])
+      .then(async ([preferences, nextLocaleInfo, nextRuntimeInfo, nextCacheStats, nextUpdateStatus]: [
+        Preferences,
+        LocaleInfo,
+        RuntimeInfo,
+        CacheStats,
+        UpdateState
+      ]) => {
         setLocaleInfo(nextLocaleInfo);
         setRuntimeInfo(nextRuntimeInfo);
+        setCacheStats(nextCacheStats);
+        setUpdateStatus(nextUpdateStatus);
         await applyPreferences(preferences, nextLocaleInfo);
       })
       .catch((preferencesError) => {
@@ -794,11 +817,12 @@ export function App(): React.ReactElement {
   }, [t]);
 
   const resetSettings = useCallback(() => {
+    if (!window.confirm(t("settings.resetSettingsConfirm"))) return;
     void window.suwol
       .resetSettings()
       .then(async (nextPreferences) => {
         await applyPreferences(nextPreferences);
-        setError(t("settings.settingsReset"));
+        setError(t("settings.settingsResetDone"));
       })
       .catch((settingsError) => {
         setError(translatedErrorMessage(settingsError, t));
@@ -808,8 +832,21 @@ export function App(): React.ReactElement {
   const clearThumbnailCache = useCallback(() => {
     void window.suwol
       .clearThumbnailCache()
-      .then(() => {
+      .then((result) => {
+        setCacheStats(result.stats);
         setError(t("settings.thumbnailCacheCleared"));
+      })
+      .catch((cacheError) => {
+        setError(translatedErrorMessage(cacheError, t));
+      });
+  }, [t]);
+
+  const cleanupThumbnailCache = useCallback(() => {
+    void window.suwol
+      .cleanupThumbnailCache()
+      .then((result) => {
+        setCacheStats(result.stats);
+        setError(t("settings.thumbnailCacheCleaned"));
       })
       .catch((cacheError) => {
         setError(translatedErrorMessage(cacheError, t));
@@ -821,6 +858,58 @@ export function App(): React.ReactElement {
       setError(translatedErrorMessage(safeModeError, t));
     });
   }, [t]);
+
+  const applyUpdateResult = useCallback((result: Awaited<ReturnType<typeof window.suwol.checkForUpdates>>) => {
+    if (result.ok) {
+      setUpdateStatus(result.data);
+      setError(undefined);
+      return;
+    }
+    setUpdateStatus((current) => ({
+      status: "error",
+      supported: current?.supported ?? false,
+      updateAvailable: current?.updateAvailable ?? false,
+      downloaded: current?.downloaded ?? false,
+      version: current?.version,
+      latestVersion: current?.latestVersion,
+      releaseName: current?.releaseName,
+      error: result
+    }));
+    setError(translatedErrorMessage(result, t));
+  }, [t]);
+
+  const checkForUpdates = useCallback(() => {
+    setUpdateStatus((current) => (current ? { ...current, status: "checking", error: undefined } : current));
+    void window.suwol.checkForUpdates().then(applyUpdateResult).catch((updateError) => {
+      setError(translatedErrorMessage(updateError, t));
+    });
+  }, [applyUpdateResult, t]);
+
+  const downloadUpdate = useCallback(() => {
+    setUpdateStatus((current) => (current ? { ...current, status: "downloading", error: undefined } : current));
+    void window.suwol.downloadUpdate().then(applyUpdateResult).catch((updateError) => {
+      setError(translatedErrorMessage(updateError, t));
+    });
+  }, [applyUpdateResult, t]);
+
+  const installUpdate = useCallback(() => {
+    void window.suwol.installUpdate().then(applyUpdateResult).catch((updateError) => {
+      setError(translatedErrorMessage(updateError, t));
+    });
+  }, [applyUpdateResult, t]);
+
+  const setUpdateStartupCheck = useCallback((enabled: boolean) => {
+    setCheckForUpdatesOnStartup(enabled);
+    void window.suwol
+      .updateUpdatePreferences({ checkForUpdatesOnStartup: enabled })
+      .then(async (nextPreferences) => {
+        await applyPreferences(nextPreferences);
+      })
+      .catch((updatePreferenceError) => {
+        setCheckForUpdatesOnStartup((current) => !current);
+        setError(translatedErrorMessage(updatePreferenceError, t));
+      });
+  }, [applyPreferences, t]);
 
   const displayTransform = {
     transform: `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg) scaleX(${flipped ? -1 : 1}) scale(${zoom})`
@@ -1071,16 +1160,24 @@ export function App(): React.ReactElement {
             <SettingsPanel
               leftPanelVisible={leftPanelVisible}
               rightPanelVisible={rightPanelVisible}
+              cacheStats={cacheStats}
+              checkForUpdatesOnStartup={checkForUpdatesOnStartup}
               runtimeInfo={runtimeInfo}
               topBarMode={topBarMode}
+              updateStatus={updateStatus}
+              onCleanupThumbnailCache={cleanupThumbnailCache}
               onClearThumbnailCache={clearThumbnailCache}
+              onCheckForUpdates={checkForUpdates}
               onCopyExecutablePath={copyExecutablePath}
+              onDownloadUpdate={downloadUpdate}
+              onInstallUpdate={installUpdate}
               onOpenLogsFolder={openLogsFolder}
               onOpenReleases={openReleases}
               onOpenWindowsDefaultApps={openWindowsDefaultApps}
               onResetPanelSizes={resetPanelSizes}
               onResetSettings={resetSettings}
               onRestartInSafeMode={restartInSafeMode}
+              onSetUpdateStartupCheck={setUpdateStartupCheck}
               onSetTopBarMode={setTopBarMode}
               onToggleLeftPanel={() => setLeftPanelVisible((value) => !value)}
               onToggleRightPanel={() => setRightPanelVisible((value) => !value)}
@@ -1107,37 +1204,58 @@ export function App(): React.ReactElement {
 function SettingsPanel({
   leftPanelVisible,
   rightPanelVisible,
+  cacheStats,
+  checkForUpdatesOnStartup,
   runtimeInfo,
   topBarMode,
+  updateStatus,
+  onCleanupThumbnailCache,
   onClearThumbnailCache,
+  onCheckForUpdates,
   onCopyExecutablePath,
+  onDownloadUpdate,
+  onInstallUpdate,
   onOpenLogsFolder,
   onOpenReleases,
   onOpenWindowsDefaultApps,
   onResetPanelSizes,
   onResetSettings,
   onRestartInSafeMode,
+  onSetUpdateStartupCheck,
   onSetTopBarMode,
   onToggleLeftPanel,
   onToggleRightPanel
 }: {
   leftPanelVisible: boolean;
   rightPanelVisible: boolean;
+  cacheStats?: CacheStats;
+  checkForUpdatesOnStartup: boolean;
   runtimeInfo?: RuntimeInfo;
   topBarMode: ChromeBarMode;
+  updateStatus?: UpdateState;
+  onCleanupThumbnailCache: () => void;
   onClearThumbnailCache: () => void;
+  onCheckForUpdates: () => void;
   onCopyExecutablePath: () => void;
+  onDownloadUpdate: () => void;
+  onInstallUpdate: () => void;
   onOpenLogsFolder: () => void;
   onOpenReleases: () => void;
   onOpenWindowsDefaultApps: () => void;
   onResetPanelSizes: () => void;
   onResetSettings: () => void;
   onRestartInSafeMode: () => void;
+  onSetUpdateStartupCheck: (enabled: boolean) => void;
   onSetTopBarMode: (mode: ChromeBarMode) => void;
   onToggleLeftPanel: () => void;
   onToggleRightPanel: () => void;
 }): React.ReactElement {
   const { t } = useTranslation();
+  const updateStatusLabel = t(`updates.status.${updateStatus?.status ?? "idle"}`);
+  const updateError = updateStatus?.error ? translatedErrorMessage(updateStatus.error, t) : undefined;
+  const canCheckForUpdates = updateStatus?.supported === true && updateStatus.status !== "checking";
+  const canDownloadUpdate = updateStatus?.supported === true && updateStatus.updateAvailable && updateStatus.status !== "downloading";
+  const canInstallUpdate = updateStatus?.supported === true && updateStatus.downloaded;
 
   return (
     <div className="settings-content">
@@ -1159,6 +1277,37 @@ function SettingsPanel({
         <button className="panel-command-button" onClick={onCopyExecutablePath}>
           <Copy size={15} />
           <span>{t("settings.copyExecutablePath")}</span>
+        </button>
+      </div>
+
+      <div className="subheading">{t("settings.updates")}</div>
+      <InfoRow label={t("settings.currentVersion")} value={runtimeInfo?.version ?? t("common.unknown")} />
+      <InfoRow label={t("settings.updateStatus")} value={updateStatusLabel} />
+      {updateStatus?.latestVersion && <InfoRow label={t("settings.latestVersion")} value={updateStatus.latestVersion} />}
+      {updateError && <p className="settings-note">{updateError}</p>}
+      <label className="settings-check">
+        <input
+          type="checkbox"
+          checked={checkForUpdatesOnStartup}
+          onChange={(event) => onSetUpdateStartupCheck(event.currentTarget.checked)}
+        />
+        <span>{t("settings.checkForUpdatesOnStartup")}</span>
+      </label>
+      <p className="settings-note">{t("settings.appImageUpdateNote")}</p>
+      <p className="settings-note">{t("settings.tarballUpdateNote")}</p>
+      {runtimeInfo?.safeMode && <p className="settings-note">{t("settings.safeModeUpdateNote")}</p>}
+      <div className="settings-actions">
+        <button className="panel-command-button" onClick={onCheckForUpdates} disabled={!canCheckForUpdates}>
+          <RefreshCw size={15} />
+          <span>{t("settings.checkForUpdates")}</span>
+        </button>
+        <button className="panel-command-button" onClick={onDownloadUpdate} disabled={!canDownloadUpdate}>
+          <Download size={15} />
+          <span>{t("settings.downloadUpdate")}</span>
+        </button>
+        <button className="panel-command-button" onClick={onInstallUpdate} disabled={!canInstallUpdate}>
+          <Power size={15} />
+          <span>{t("settings.installAndRestart")}</span>
         </button>
       </div>
 
@@ -1188,6 +1337,8 @@ function SettingsPanel({
 
       <div className="subheading">{t("settings.maintenance")}</div>
       <p className="settings-note">{t("settings.logsPrivacyNote")}</p>
+      <InfoRow label={t("settings.cacheSize")} value={formatBytes(cacheStats?.thumbnailSizeBytes, t("common.unknown"))} />
+      <InfoRow label={t("settings.cacheEntries")} value={String(cacheStats?.thumbnailEntries ?? 0)} />
       <div className="settings-actions">
         <button className="panel-command-button" onClick={onOpenLogsFolder}>
           <FolderCog size={15} />
@@ -1196,6 +1347,10 @@ function SettingsPanel({
         <button className="panel-command-button" onClick={onClearThumbnailCache}>
           <Trash2 size={15} />
           <span>{t("settings.clearThumbnailCache")}</span>
+        </button>
+        <button className="panel-command-button" onClick={onCleanupThumbnailCache}>
+          <Trash2 size={15} />
+          <span>{t("settings.cleanOldCache")}</span>
         </button>
         <button className="panel-command-button" onClick={onResetSettings}>
           <RotateCcw size={15} />

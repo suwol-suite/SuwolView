@@ -17,6 +17,7 @@ line. Third-party dependencies remain under their respective licenses.
 | i18next | Runtime translation engine | MIT |
 | react-i18next | React bindings for runtime translation | MIT |
 | lucide-react | Interface icons | ISC |
+| electron-updater | In-app update checks and downloads for packaged Linux AppImage builds | MIT |
 | sharp | Image conversion and thumbnail pipeline | Apache-2.0 package; native libvips redistribution must remain documented |
 | @img/sharp-win32-x64 | Windows native sharp image pipeline package | Apache-2.0 AND LGPL-3.0-or-later; review-required |
 | exifr | EXIF and image metadata parsing | MIT |
