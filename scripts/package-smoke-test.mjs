@@ -347,6 +347,23 @@ async function findAppBundles(directoryPath, depth = 0) {
   return bundles;
 }
 
+async function findFilesByExtension(directoryPath, extensions, depth = 0) {
+  if (depth > 12 || !(await exists(directoryPath))) return [];
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const matches = [];
+  for (const entry of entries) {
+    const fullPath = path.join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      matches.push(...(await findFilesByExtension(fullPath, extensions, depth + 1)));
+      continue;
+    }
+    if (entry.isFile() && extensions.some((extension) => entry.name.endsWith(extension))) {
+      matches.push(fullPath);
+    }
+  }
+  return matches;
+}
+
 async function checkCommand(command, args, label, options = {}) {
   const { required = true } = options;
   try {
@@ -375,6 +392,13 @@ async function checkMacSigningAndStapling(releaseDir, dmgFileName) {
   for (const appBundle of appBundles) {
     await checkCommand("codesign", ["--verify", "--deep", "--verbose=4", appBundle], `codesign verify ${path.relative(root, appBundle)}`);
     await checkCommand("codesign", ["-dv", "--verbose=4", appBundle], `codesign details ${path.relative(root, appBundle)}`);
+    const nativeFiles = await findFilesByExtension(appBundle, [".node", ".dylib"]);
+    if (nativeFiles.length === 0) {
+      notes.push(`No .node or .dylib files found for native codesign verification in ${path.relative(root, appBundle)}.`);
+    }
+    for (const nativeFile of nativeFiles) {
+      await checkCommand("codesign", ["--verify", "--verbose=4", nativeFile], `codesign verify native ${path.relative(root, nativeFile)}`);
+    }
     await checkCommand("spctl", ["-a", "-vvv", "-t", "execute", appBundle], `spctl execute ${path.relative(root, appBundle)}`, {
       required: false
     });

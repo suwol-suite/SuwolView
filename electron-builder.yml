@@ -45,6 +45,8 @@ asarUnpack:
   - node_modules/sharp/**
   - node_modules/@img/**
 
+afterSign: scripts/resign-mac-app.mjs
+
 win:
   icon: assets/icon.ico
   target:
@@ -123,6 +125,7 @@ mac:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   category: public.app-category.graphics-design
   icon: assets/icon.icns
+  forceCodeSigning: true
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist

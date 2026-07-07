@@ -13,6 +13,8 @@ describe("release artifact policy", () => {
     expect(builderConfig).toContain("target: dmg");
     expect(builderConfig).toContain("target: zip");
     expect(builderConfig).toContain("hardenedRuntime: true");
+    expect(builderConfig).toContain("forceCodeSigning: true");
+    expect(builderConfig).toContain("afterSign: scripts/resign-mac-app.mjs");
     expect(builderConfig).toContain("notarize: true");
     expect(builderConfig).toContain("entitlements.mac.plist");
     expect(builderConfig).toContain("arch:\n        - arm64");
@@ -40,6 +42,9 @@ describe("release artifact policy", () => {
     expect(smokeScript).toContain("codesign");
     expect(smokeScript).toContain("--verbose=4");
     expect(smokeScript).not.toContain("--strict");
+    expect(smokeScript).toContain(".node");
+    expect(smokeScript).toContain(".dylib");
+    expect(smokeScript).toContain("codesign verify native");
     expect(smokeScript).toContain("spctl");
     expect(smokeScript).toContain("stapler");
     expect(smokeScript).toContain("required: false");
@@ -59,6 +64,26 @@ describe("release artifact policy", () => {
     expect(notarizeScript).toContain("tool: \"notarytool\"");
     expect(workflow).toContain("Notarize macOS DMG");
     expect(workflow).toContain("node scripts/notarize-dmg.mjs");
+  });
+
+  it("resigns macOS app internals with Developer ID runtime options before DMG notarization", async () => {
+    const resignScript = await readFile("scripts/resign-mac-app.mjs", "utf8");
+
+    expect(resignScript).toContain("Developer ID Application");
+    expect(resignScript).toContain("security");
+    expect(resignScript).toContain("find-identity");
+    expect(resignScript).toContain("process.env.CI");
+    expect(resignScript).toContain("Contents\", \"Frameworks");
+    expect(resignScript).toContain("app.asar.unpacked");
+    expect(resignScript).toContain(".node");
+    expect(resignScript).toContain(".dylib");
+    expect(resignScript).toContain("--timestamp");
+    expect(resignScript).toContain("--options");
+    expect(resignScript).toContain("runtime");
+    expect(resignScript).toContain("--entitlements");
+    expect(resignScript).toContain("codesign");
+    expect(resignScript).toContain("--verify");
+    expect(resignScript).not.toContain("APPLE_APP_SPECIFIC_PASSWORD)");
   });
 
   it("signs and uploads checksums from the release workflow", async () => {
