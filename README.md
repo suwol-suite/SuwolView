@@ -77,12 +77,12 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows installer: `SuwolView-0.2.2-setup.exe`
-- Windows portable ZIP: `SuwolView-0.2.2-win-x64.zip`
-- macOS signed DMG: `SuwolView-0.2.2-mac-universal.dmg`
-- macOS update/archive ZIP: `SuwolView-0.2.2-mac-universal.zip`
-- Linux AppImage: `SuwolView-0.2.2-linux-x64.AppImage`
-- Linux portable tar.gz: `SuwolView-0.2.2-linux-x64.tar.gz`
+- Windows installer: `SuwolView-0.2.3-setup.exe`
+- Windows portable ZIP: `SuwolView-0.2.3-win-x64.zip`
+- macOS signed DMG: `SuwolView-0.2.3-mac-universal.dmg`
+- macOS update/archive ZIP: `SuwolView-0.2.3-mac-universal.zip`
+- Linux AppImage: `SuwolView-0.2.3-linux-x64.AppImage`
+- Linux portable tar.gz: `SuwolView-0.2.3-linux-x64.tar.gz`
 
 Startup update checks are not enabled by default.
 
@@ -260,7 +260,7 @@ Release workflows are configured to produce:
 - `suwol-release-public-key.asc`
 - `latest-mac.yml`
 - `latest-linux.yml`
-- Release notes based on the tag version, for example `docs/release-notes-0.2.2.md`
+- Release notes based on the tag version, for example `docs/release-notes-0.2.3.md`
 
 The current locally verified Windows targets are the NSIS installer and ZIP
 package. macOS signed DMG/ZIP and Linux AppImage/tar.gz artifacts are built by
@@ -350,7 +350,7 @@ Large or unsafe metadata blocks may be skipped or truncated.
 
 More detail is available in `docs/security-policy.md`.
 
-Manual release checks are tracked in `docs/manual-qc-0.2.2.md`.
+Manual release checks are tracked in `docs/manual-qc-0.2.3.md`.
 
 ## Contributing
 

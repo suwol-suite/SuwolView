@@ -15,6 +15,8 @@ describe("release artifact policy", () => {
     expect(builderConfig).toContain("hardenedRuntime: true");
     expect(builderConfig).toContain("notarize: true");
     expect(builderConfig).toContain("entitlements.mac.plist");
+    expect(builderConfig).toContain("singleArchFiles: node_modules/@img/**/*");
+    expect(builderConfig).toContain("x64ArchFiles: Contents/Resources/app.asar.unpacked/node_modules/@img/**/*");
   });
 
   it("collects Linux and macOS update metadata and public key for releases", async () => {
@@ -27,6 +29,7 @@ describe("release artifact policy", () => {
     expect(collectScript).toContain("linux-x86_64.AppImage");
     expect(collectScript).toContain("darwin");
     expect(collectScript).toContain("mac-universal");
+    expect(collectScript).toContain("x64|arm64");
   });
 
   it("smoke tests macOS release artifacts and signing checks when present", async () => {
