@@ -15,8 +15,8 @@ describe("release artifact policy", () => {
     expect(builderConfig).toContain("hardenedRuntime: true");
     expect(builderConfig).toContain("notarize: true");
     expect(builderConfig).toContain("entitlements.mac.plist");
-    expect(builderConfig).toContain("singleArchFiles: node_modules/@img/**/*");
-    expect(builderConfig).toContain("x64ArchFiles: Contents/Resources/app.asar.unpacked/node_modules/@img/**/*");
+    expect(builderConfig).toContain("arch:\n        - arm64");
+    expect(builderConfig).not.toContain("universal");
   });
 
   it("collects Linux and macOS update metadata and public key for releases", async () => {
@@ -28,14 +28,15 @@ describe("release artifact policy", () => {
     expect(collectScript).toContain("Missing required release metadata");
     expect(collectScript).toContain("linux-x86_64.AppImage");
     expect(collectScript).toContain("darwin");
-    expect(collectScript).toContain("mac-universal");
-    expect(collectScript).toContain("x64|arm64");
+    expect(collectScript).toContain("mac-arm64");
+    expect(collectScript).toContain("Expected mac-arm64 only");
   });
 
   it("smoke tests macOS release artifacts and signing checks when present", async () => {
     const smokeScript = await readFile("scripts/package-smoke-test.mjs", "utf8");
 
     expect(smokeScript).toContain("latest-mac\\.yml");
+    expect(smokeScript).toContain("mac-arm64");
     expect(smokeScript).toContain("codesign");
     expect(smokeScript).toContain("stapler");
     expect(smokeScript).toContain("macOS signing and notarization checks skipped on non-macOS host");
@@ -46,10 +47,10 @@ describe("release artifact policy", () => {
 
     expect(workflow).toContain("GPG_PRIVATE_KEY_B64");
     expect(workflow).toContain("GPG_PASSPHRASE");
-    expect(workflow).toContain("macos-14");
+    expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64]");
     expect(workflow).toContain("CSC_LINK");
     expect(workflow).toContain("APPLE_APP_SPECIFIC_PASSWORD");
-    expect(workflow).toContain("APPLE_API_KEY_ID");
+    expect(workflow).toContain("--mac dmg zip --arm64 --publish never");
     expect(workflow).toContain("checksums.txt.asc");
     expect(workflow).toContain("gpg --verify checksums.txt.asc checksums.txt");
     expect(workflow).toContain("SuwolView-*.dmg");

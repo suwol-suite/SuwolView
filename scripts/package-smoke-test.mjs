@@ -50,6 +50,9 @@ const forbiddenReleaseFilePatterns = [
   /private/i,
   /revocation/i,
   /passphrase/i,
+  /app-specific/i,
+  /\.p12$/i,
+  /\.pfx$/i,
   /\.gpg$/i,
   /\.key$/i
 ];
@@ -380,8 +383,8 @@ async function checkMacReleaseArtifacts(buildMtime) {
   }
 
   const expectedFiles = [
-    [/^SuwolView-.+-mac-(?:universal|x64|arm64)\.dmg$/i, /^SuwolView-.+-darwin-(?:universal|x64|arm64)\.dmg$/i],
-    [/^SuwolView-.+-mac-(?:universal|x64|arm64)\.zip$/i, /^SuwolView-.+-darwin-(?:universal|x64|arm64)\.zip$/i],
+    [/^SuwolView-.+-mac-arm64\.dmg$/i, /^SuwolView-.+-darwin-arm64\.dmg$/i],
+    [/^SuwolView-.+-mac-arm64\.zip$/i, /^SuwolView-.+-darwin-arm64\.zip$/i],
     [/^latest-mac\.yml$/i]
   ];
 
@@ -410,7 +413,7 @@ async function checkMacReleaseArtifacts(buildMtime) {
   }
 
   const hasMacArtifact = (await readdir(releaseDir, { withFileTypes: true })).some(
-    (entry) => entry.isFile() && /^SuwolView-.+-(?:mac|darwin)-(?:universal|x64|arm64)\.(?:dmg|zip)$/i.test(entry.name)
+    (entry) => entry.isFile() && /^SuwolView-.+-(?:mac|darwin)-arm64\.(?:dmg|zip)$/i.test(entry.name)
   );
   if (hasMacArtifact && (!foundAny || missingExpectedFiles.length > 0)) {
     failures.push(`macOS release build missing required files: ${missingExpectedFiles.join(", ")}`);

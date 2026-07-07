@@ -1,7 +1,7 @@
 {
   "name": "suwol-view",
   "productName": "SuwolView",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Free open-source cross-platform image, comic, webtoon, and metadata viewer.",
   "license": "Apache-2.0",
   "author": "SuwolView contributors",
@@ -35,7 +35,7 @@
     "dist:linux:zip": "npm run build && electron-builder --linux zip --publish never",
     "dist:linux:release": "npm run build && electron-builder --linux AppImage tar.gz --publish never",
     "dist:linux:dir": "npm run build && electron-builder --linux dir --publish never",
-    "dist:mac:release": "npm run build && electron-builder --mac dmg zip --universal --publish never",
+    "dist:mac:release": "npm run build && electron-builder --mac dmg zip --arm64 --publish never",
     "release:collect": "node scripts/collect-release-artifact.mjs",
     "license:check": "node scripts/check-licenses.mjs",
     "package:smoke": "node scripts/package-smoke-test.mjs",

@@ -77,12 +77,12 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows installer: `SuwolView-0.2.3-setup.exe`
-- Windows portable ZIP: `SuwolView-0.2.3-win-x64.zip`
-- macOS signed DMG: `SuwolView-0.2.3-mac-universal.dmg`
-- macOS update/archive ZIP: `SuwolView-0.2.3-mac-universal.zip`
-- Linux AppImage: `SuwolView-0.2.3-linux-x64.AppImage`
-- Linux portable tar.gz: `SuwolView-0.2.3-linux-x64.tar.gz`
+- Windows installer: `SuwolView-0.2.4-setup.exe`
+- Windows portable ZIP: `SuwolView-0.2.4-win-x64.zip`
+- macOS Apple Silicon DMG: `SuwolView-0.2.4-mac-arm64.dmg`
+- macOS Apple Silicon ZIP: `SuwolView-0.2.4-mac-arm64.zip`
+- Linux AppImage: `SuwolView-0.2.4-linux-x64.AppImage`
+- Linux portable tar.gz: `SuwolView-0.2.4-linux-x64.tar.gz`
 
 Startup update checks are not enabled by default.
 
@@ -91,6 +91,9 @@ in-app update checks and downloads. The Windows installer is recommended for
 normal Windows use. Portable ZIP and tar.gz archives may require manual
 updates. Update checks are not forced, startup update checks are off by
 default, and Safe Mode disables update checks.
+
+The macOS build for this release is Apple Silicon only. Intel Mac is not
+supported in this release.
 
 For local development:
 
@@ -260,11 +263,11 @@ Release workflows are configured to produce:
 - `suwol-release-public-key.asc`
 - `latest-mac.yml`
 - `latest-linux.yml`
-- Release notes based on the tag version, for example `docs/release-notes-0.2.3.md`
+- Release notes based on the tag version, for example `docs/release-notes-0.2.4.md`
 
 The current locally verified Windows targets are the NSIS installer and ZIP
-package. macOS signed DMG/ZIP and Linux AppImage/tar.gz artifacts are built by
-GitHub Actions.
+package. macOS Apple Silicon signed DMG/ZIP and Linux AppImage/tar.gz artifacts
+are built by GitHub Actions.
 
 macOS ZIP and Linux AppImage packages are intended for in-app update checks and
 downloads. macOS DMG, Windows ZIP, and Linux tar.gz packages can also be used
@@ -350,7 +353,7 @@ Large or unsafe metadata blocks may be skipped or truncated.
 
 More detail is available in `docs/security-policy.md`.
 
-Manual release checks are tracked in `docs/manual-qc-0.2.3.md`.
+Manual release checks are tracked in `docs/manual-qc-0.2.4.md`.
 
 ## Contributing
 

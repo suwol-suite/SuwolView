@@ -128,16 +128,13 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
   notarize: true
-  mergeASARs: true
-  singleArchFiles: node_modules/@img/**/*
-  x64ArchFiles: Contents/Resources/app.asar.unpacked/node_modules/@img/**/*
   target:
     - target: dmg
       arch:
-        - universal
+        - arm64
     - target: zip
       arch:
-        - universal
+        - arm64
 
 linux:
   category: Graphics

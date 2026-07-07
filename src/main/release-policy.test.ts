@@ -6,7 +6,7 @@ describe("release policy", () => {
   it("marks the project package as Apache-2.0 licensed", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8")) as { license?: string; version?: string };
 
-    expect(packageJson.version).toBe("0.2.3");
+    expect(packageJson.version).toBe("0.2.4");
     expect(packageJson.license).toBe("Apache-2.0");
   });
 

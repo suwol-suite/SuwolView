@@ -29,7 +29,7 @@ function artifactMatchesPlatform(name) {
   }
 
   return (
-    new RegExp(`^SuwolView-${escapeRegExp(version)}-(?:mac|darwin)-(?:universal|x64|arm64)\\.(?:dmg|zip)$`, "i").test(name) ||
+    new RegExp(`^SuwolView-${escapeRegExp(version)}-(?:mac|darwin)-arm64\\.(?:dmg|zip)$`, "i").test(name) ||
     new RegExp(`^SuwolView-${escapeRegExp(version)}\\.(?:dmg|zip)$`, "i").test(name)
   );
 }
@@ -44,14 +44,14 @@ function releaseArtifactName(name) {
   }
   if (platform === "mac") {
     const namedMatch = name.match(
-      new RegExp(`^SuwolView-${escapeRegExp(version)}-(?:mac|darwin)-(universal|x64|arm64)\\.(dmg|zip)$`, "i")
+      new RegExp(`^SuwolView-${escapeRegExp(version)}-(?:mac|darwin)-arm64\\.(dmg|zip)$`, "i")
     );
     if (namedMatch) {
-      return `SuwolView-${version}-mac-${namedMatch[1].toLowerCase()}.${namedMatch[2].toLowerCase()}`;
+      return `SuwolView-${version}-mac-arm64.${namedMatch[1].toLowerCase()}`;
     }
     const plainMatch = name.match(new RegExp(`^SuwolView-${escapeRegExp(version)}\\.(dmg|zip)$`, "i"));
     if (plainMatch) {
-      return `SuwolView-${version}-mac-universal.${plainMatch[1].toLowerCase()}`;
+      return `SuwolView-${version}-mac-arm64.${plainMatch[1].toLowerCase()}`;
     }
   }
   return name;
@@ -149,8 +149,12 @@ if (platform === "mac") {
   const outputPath = path.join(outputDir, "latest-mac.yml");
   const metadata = await readFile(sourcePath, "utf8");
   const normalizedMetadata = metadata
-    .replaceAll(`SuwolView-${version}-darwin-`, `SuwolView-${version}-mac-`)
-    .replace(new RegExp(`SuwolView-${escapeRegExp(version)}\\.(zip|dmg)`, "g"), `SuwolView-${version}-mac-universal.$1`);
+    .replaceAll(`SuwolView-${version}-darwin-arm64`, `SuwolView-${version}-mac-arm64`)
+    .replace(new RegExp(`SuwolView-${escapeRegExp(version)}\\.(zip|dmg)`, "g"), `SuwolView-${version}-mac-arm64.$1`);
+  if (new RegExp(`SuwolView-${escapeRegExp(version)}-(?:mac|darwin)-(?:universal|x64)`, "i").test(normalizedMetadata)) {
+    console.error("Unsupported macOS update metadata architecture found. Expected mac-arm64 only.");
+    process.exit(1);
+  }
   await writeFile(outputPath, normalizedMetadata);
   console.log(`Collected ${path.relative(root, outputPath)}.`);
 }
