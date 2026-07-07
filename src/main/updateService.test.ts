@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppUpdater, UpdateCheckResult } from "electron-updater";
 import { resolveUpdateSupport, UpdateService } from "./updateService";
 
+const currentVersion = "0.2.5";
+const nextVersion = "0.2.6";
+
 class FakeUpdater extends EventEmitter {
   autoDownload = true;
   autoInstallOnAppQuit = true;
@@ -23,7 +26,7 @@ describe("update service support matrix", () => {
         safeMode: false,
         platform: "linux",
         appImagePath: "/tmp/SuwolView.AppImage",
-        version: "0.2.4"
+        version: currentVersion
       })
     ).toMatchObject({ supported: false, status: "disabled", reason: { code: "UPDATE_DISABLED_DEV" } });
   });
@@ -34,7 +37,7 @@ describe("update service support matrix", () => {
         isPackaged: false,
         safeMode: false,
         platform: "darwin",
-        version: "0.2.4"
+        version: currentVersion
       })
     ).toMatchObject({ supported: false, status: "disabled", reason: { code: "UPDATE_DISABLED_DEV" } });
   });
@@ -46,7 +49,7 @@ describe("update service support matrix", () => {
         safeMode: true,
         platform: "linux",
         appImagePath: "/tmp/SuwolView.AppImage",
-        version: "0.2.4"
+        version: currentVersion
       })
     ).toMatchObject({ supported: false, status: "disabled", reason: { code: "UPDATE_DISABLED_SAFE_MODE" } });
   });
@@ -57,7 +60,7 @@ describe("update service support matrix", () => {
         isPackaged: true,
         safeMode: true,
         platform: "darwin",
-        version: "0.2.4"
+        version: currentVersion
       })
     ).toMatchObject({ supported: false, status: "disabled", reason: { code: "UPDATE_DISABLED_SAFE_MODE" } });
   });
@@ -68,7 +71,7 @@ describe("update service support matrix", () => {
         isPackaged: true,
         safeMode: false,
         platform: "darwin",
-        version: "0.2.4"
+        version: currentVersion
       })
     ).toMatchObject({ supported: true, status: "idle" });
   });
@@ -79,7 +82,7 @@ describe("update service support matrix", () => {
         isPackaged: true,
         safeMode: false,
         platform: "linux",
-        version: "0.2.4"
+        version: currentVersion
       })
     ).toMatchObject({ supported: false, status: "unsupported", reason: { code: "UPDATE_UNSUPPORTED_LINUX_PACKAGE" } });
   });
@@ -91,7 +94,7 @@ describe("update service support matrix", () => {
         safeMode: false,
         platform: "linux",
         appImagePath: "/tmp/SuwolView.AppImage",
-        version: "0.2.4"
+        version: currentVersion
       })
     ).toMatchObject({ supported: true, status: "idle" });
   });
@@ -101,7 +104,7 @@ describe("update service support matrix", () => {
       isPackaged: false,
       safeMode: false,
       platform: "win32",
-      version: "0.2.4",
+      version: currentVersion,
       updater: fakeAppUpdater()
     });
 
@@ -115,11 +118,11 @@ describe("update service support matrix", () => {
   it("checks and downloads updates through the injected updater", async () => {
     const updater = new FakeUpdater();
     updater.checkForUpdates.mockImplementation(async () => {
-      updater.emit("update-available", { version: "0.2.5", releaseName: "SuwolView 0.2.5" });
-      return { updateInfo: { version: "0.2.5", files: [], path: "", sha512: "" } } as unknown as UpdateCheckResult;
+      updater.emit("update-available", { version: nextVersion, releaseName: `SuwolView ${nextVersion}` });
+      return { updateInfo: { version: nextVersion, files: [], path: "", sha512: "" } } as unknown as UpdateCheckResult;
     });
     updater.downloadUpdate.mockImplementation(async () => {
-      updater.emit("update-downloaded", { version: "0.2.5", releaseName: "SuwolView 0.2.5" });
+      updater.emit("update-downloaded", { version: nextVersion, releaseName: `SuwolView ${nextVersion}` });
       return [];
     });
     const service = new UpdateService({
@@ -127,7 +130,7 @@ describe("update service support matrix", () => {
       safeMode: false,
       platform: "linux",
       appImagePath: "/tmp/SuwolView.AppImage",
-      version: "0.2.4",
+      version: currentVersion,
       updater: fakeAppUpdater(updater)
     });
 
@@ -136,7 +139,7 @@ describe("update service support matrix", () => {
       data: {
         status: "available",
         updateAvailable: true,
-        latestVersion: "0.2.5"
+        latestVersion: nextVersion
       }
     });
     await expect(service.downloadUpdate()).resolves.toMatchObject({
