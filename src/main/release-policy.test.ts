@@ -26,4 +26,21 @@ describe("release policy", () => {
     expect(IPC_CHANNELS.downloadUpdate).toBe("update:download");
     expect(IPC_CHANNELS.installUpdate).toBe("update:install");
   });
+
+  it("documents core-first release publishing with later macOS attach", async () => {
+    const readme = await readFile("README.md", "utf8");
+    const releaseNotes = await readFile("docs/release-notes-0.2.4.md", "utf8");
+    const manualQc = await readFile("docs/manual-qc-0.2.4.md", "utf8");
+
+    expect(readme).toContain("Windows and Linux assets are published first.");
+    expect(readme).toContain("macOS Apple Silicon assets may be attached later after Apple notarization completes.");
+    expect(readme).toContain("checksums.txt` and `checksums.txt.asc` are updated when macOS assets are attached.");
+    expect(readme).toContain("Intel Mac is not supported.");
+    expect(releaseNotes).toContain("Windows/Linux assets may appear before macOS assets.");
+    expect(releaseNotes).toContain("macOS assets are attached to the same Release after notarization and stapling complete.");
+    expect(releaseNotes).toContain("checksums.txt` and `checksums.txt.asc` are regenerated after macOS assets are attached.");
+    expect(manualQc).toContain("Windows/Linux assets are available immediately after the core release job");
+    expect(manualQc).toContain("After macOS attach, checksums.txt includes macOS files");
+    expect(manualQc).toContain("After macOS attach, latest-mac.yml is uploaded");
+  });
 });

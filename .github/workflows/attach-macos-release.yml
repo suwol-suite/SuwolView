@@ -1,0 +1,229 @@
+name: Attach macOS Release Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v0.2.4"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  macos:
+    name: Package macOS arm64
+    runs-on: [self-hosted, macOS, ARM64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches package version
+        shell: bash
+        env:
+          TAG_NAME: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v$VERSION"
+          if [ "$TAG_NAME" != "$EXPECTED_TAG" ]; then
+            echo "::error::Input tag $TAG_NAME does not match package version $VERSION."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Confirm target Release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.tag }}
+        run: gh release view "$TAG_NAME" --repo suwol-suite/SuwolView
+
+      - name: Unlock macOS keychain
+        shell: bash
+        env:
+          MAC_KEYCHAIN_PASSWORD: ${{ secrets.MAC_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MAC_KEYCHAIN_PASSWORD:-}" ]; then
+            echo "MAC_KEYCHAIN_PASSWORD secret is missing."
+            exit 1
+          fi
+
+          LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+          security unlock-keychain -p "$MAC_KEYCHAIN_PASSWORD" "$LOGIN_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$LOGIN_KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MAC_KEYCHAIN_PASSWORD" "$LOGIN_KEYCHAIN"
+
+          security default-keychain -s "$LOGIN_KEYCHAIN"
+          security list-keychains -d user -s "$LOGIN_KEYCHAIN"
+
+          echo "macOS login keychain unlocked for codesign/notarytool."
+
+      - name: Check macOS signing and notary profile
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARYTOOL_PROFILE: suwol-notary-profile
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_TEAM_ID NOTARYTOOL_PROFILE; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Missing macOS signing secret or notary profile setting: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+          security find-identity -v -p codesigning
+          security find-identity -v -p codesigning | grep "Developer ID Application" || (
+            echo "Developer ID Application identity not found" && exit 1
+          )
+          NOTARY_HISTORY="$(xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE")"
+          printf '%s\n' "$NOTARY_HISTORY" | head -n 20
+          xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE" --output-format json >/dev/null
+          echo "macOS signing secret and notarytool keychain profile check passed."
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Icons
+        run: npm run icons:generate
+
+      - name: Verify
+        run: npm run verify
+
+      - name: Package
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run dist -- --mac dmg zip --arm64 --publish never
+
+      - name: Notarize macOS DMG
+        shell: bash
+        env:
+          NOTARYTOOL_PROFILE: suwol-notary-profile
+          NOTARY_TIMEOUT_MINUTES: 120
+        run: node scripts/notarize-dmg.mjs
+
+      - name: Collect release artifact
+        run: node scripts/collect-release-artifact.mjs mac
+
+      - name: Package Smoke Test
+        run: npm run package:smoke
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: suwolview-mac-arm64
+          path: release-artifacts/*
+          if-no-files-found: error
+
+  attach-macos-to-release:
+    name: Attach macOS to Release
+    needs: macos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: suwolview-mac-arm64
+          path: macos-artifacts
+
+      - name: Download existing Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release view "$TAG_NAME" --repo suwol-suite/SuwolView
+          gh release download "$TAG_NAME" --repo suwol-suite/SuwolView --dir release-assets --clobber
+          cp macos-artifacts/SuwolView-*-mac-arm64.dmg release-assets/
+          cp macos-artifacts/SuwolView-*-mac-arm64.zip release-assets/
+          cp macos-artifacts/latest-mac.yml release-assets/
+          rm -f release-assets/checksums.txt release-assets/checksums.txt.asc
+
+      - name: Regenerate complete checksums
+        run: |
+          set -euo pipefail
+          cd release-assets
+          find . -maxdepth 1 -type f \( \
+            -name "SuwolView-*" -o \
+            -name "latest*.yml" \
+          \) -print0 | sort -z | xargs -0 -r sha256sum > checksums.txt
+          test -s checksums.txt
+          cat checksums.txt
+
+      - name: Import GPG private key
+        env:
+          GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PRIVATE_KEY_B64"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/suwol-release-private-key.asc"
+          gpg --batch --import "$RUNNER_TEMP/suwol-release-private-key.asc"
+          rm -f "$RUNNER_TEMP/suwol-release-private-key.asc"
+
+      - name: Sign complete checksums
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PASSPHRASE"
+          cd release-assets
+          printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 \
+            --armor --detach-sign checksums.txt
+          test -s checksums.txt.asc
+
+      - name: Verify complete checksums
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -s release-assets/suwol-release-public-key.asc
+          gpg --import release-assets/suwol-release-public-key.asc
+          cd release-assets
+          gpg --verify checksums.txt.asc checksums.txt
+          sha256sum -c checksums.txt
+
+      - name: Upload macOS assets and refreshed checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG_NAME" \
+            release-assets/SuwolView-*-mac-arm64.dmg \
+            release-assets/SuwolView-*-mac-arm64.zip \
+            release-assets/latest-mac.yml \
+            release-assets/checksums.txt \
+            release-assets/checksums.txt.asc \
+            --repo suwol-suite/SuwolView \
+            --clobber

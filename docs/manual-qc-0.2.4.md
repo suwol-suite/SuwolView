@@ -47,6 +47,8 @@ Do not treat it as an automated test script.
 ## Release Assets
 
 - [ ] v0.2.4 release page exists
+- [ ] Windows/Linux assets are available immediately after the core release job
+- [ ] macOS assets may be pending while Apple notarization is still running
 - [ ] Windows setup.exe is uploaded
 - [ ] Windows ZIP is uploaded
 - [ ] macOS Apple Silicon DMG is uploaded
@@ -59,6 +61,8 @@ Do not treat it as an automated test script.
 - [ ] checksums.txt is uploaded
 - [ ] checksums.txt.asc is uploaded
 - [ ] suwol-release-public-key.asc is uploaded
+- [ ] After macOS attach, checksums.txt includes macOS files
+- [ ] After macOS attach, latest-mac.yml is uploaded
 - [ ] checksums verify
 - [ ] GPG signature verifies
 

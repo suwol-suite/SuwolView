@@ -77,12 +77,13 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows installer: `SuwolView-0.2.4-setup.exe`
-- Windows portable ZIP: `SuwolView-0.2.4-win-x64.zip`
-- macOS Apple Silicon DMG: `SuwolView-0.2.4-mac-arm64.dmg`
-- macOS Apple Silicon ZIP: `SuwolView-0.2.4-mac-arm64.zip`
-- Linux AppImage: `SuwolView-0.2.4-linux-x64.AppImage`
-- Linux portable tar.gz: `SuwolView-0.2.4-linux-x64.tar.gz`
+- Windows: `SuwolView-0.2.4-setup.exe` is recommended. `SuwolView-0.2.4-win-x64.zip` is the portable package.
+- Linux: `SuwolView-0.2.4-linux-x64.AppImage` is recommended. `SuwolView-0.2.4-linux-x64.tar.gz` is the portable package.
+- macOS: `SuwolView-0.2.4-mac-arm64.dmg` is recommended. `SuwolView-0.2.4-mac-arm64.zip` is the update/archive package.
+
+Windows and Linux assets may appear first. macOS Apple Silicon assets can be
+attached later to the same GitHub Release after Apple notarization and stapling
+complete.
 
 Startup update checks are not enabled by default.
 
@@ -264,6 +265,14 @@ Release workflows are configured to produce:
 - `latest-mac.yml`
 - `latest-linux.yml`
 - Release notes based on the tag version, for example `docs/release-notes-0.2.4.md`
+
+Release policy:
+
+- Windows and Linux assets are published first.
+- macOS Apple Silicon assets may be attached later after Apple notarization completes.
+- `checksums.txt` and `checksums.txt.asc` are updated when macOS assets are attached.
+- macOS build is Apple Silicon only.
+- Intel Mac is not supported.
 
 The current locally verified Windows targets are the NSIS installer and ZIP
 package. macOS Apple Silicon signed DMG/ZIP and Linux AppImage/tar.gz artifacts

@@ -76,6 +76,7 @@ describe("release artifact policy", () => {
     expect(notarizeScript).toContain("--keychain-profile");
     expect(notarizeScript).toContain("suwol-notary-profile");
     expect(notarizeScript).toContain("NOTARYTOOL_PROFILE");
+    expect(notarizeScript).toContain("NOTARY_TIMEOUT_MINUTES");
     expect(notarizeScript).toContain("POLL_INTERVAL_MS");
     expect(notarizeScript).toContain("TIMEOUT_MS");
     expect(notarizeScript).toContain("--output-format");
@@ -105,6 +106,7 @@ describe("release artifact policy", () => {
         isFailedNotaryStatus,
         isPendingNotaryStatus,
         logArgs,
+        notaryTimeoutMs,
         notarytoolProfile,
         redactSecrets,
         submitArgs
@@ -132,6 +134,7 @@ describe("release artifact policy", () => {
         profileOverride: notarytoolProfile({ NOTARYTOOL_PROFILE: "custom-profile" }),
         pollInterval: POLL_INTERVAL_MS,
         timeout: TIMEOUT_MS,
+        timeoutOverride: notaryTimeoutMs({ NOTARY_TIMEOUT_MINUTES: "120" }),
         submitArgs: submitArgs("release/app.dmg", "profile-name"),
         infoArgs: infoArgs("abc-123", "profile-name"),
         logArgs: logArgs("abc-123", "profile-name"),
@@ -152,6 +155,7 @@ describe("release artifact policy", () => {
     expect(parsed.profileOverride).toBe("custom-profile");
     expect(parsed.pollInterval).toBe(30000);
     expect(parsed.timeout).toBe(1800000);
+    expect(parsed.timeoutOverride).toBe(7200000);
     expect(parsed.submitArgs).toContain("--keychain-profile");
     expect(parsed.submitArgs).toContain("profile-name");
     expect(parsed.submitArgs).not.toContain("--password");
@@ -233,9 +237,25 @@ describe("release artifact policy", () => {
 
   it("signs and uploads checksums from the release workflow", async () => {
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const attachWorkflow = await readFile(".github/workflows/attach-macos-release.yml", "utf8");
 
     expect(workflow).toContain("GPG_PRIVATE_KEY_B64");
     expect(workflow).toContain("GPG_PASSPHRASE");
+    expect(workflow).toContain("prepare:");
+    expect(workflow).toContain("windows:");
+    expect(workflow).toContain("linux:");
+    expect(workflow).toContain("publish-core-release:");
+    expect(workflow).toContain("macos:");
+    expect(workflow).toContain("attach-macos-to-release:");
+    expect(workflow).toContain("needs.publish-core-release.result == 'success'");
+    expect(workflow).toContain("continue-on-error: true");
+    expect(workflow).toContain("macos-ready.txt");
+    expect(workflow).toContain("core Windows/Linux Release remains published");
+    expect(workflow).toContain("gh release download \"$TAG_NAME\"");
+    expect(workflow).toContain("gh release upload \"$TAG_NAME\"");
+    expect(workflow).toContain("release-assets/checksums.txt");
+    expect(workflow).toContain("release-assets/checksums.txt.asc");
+    expect(workflow).toContain("NOTARY_TIMEOUT_MINUTES: 120");
     expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64]");
     expect(workflow).toContain("CSC_LINK");
     expect(workflow).toContain("CSC_KEY_PASSWORD");
@@ -254,7 +274,19 @@ describe("release artifact policy", () => {
     expect(workflow).toContain("--mac dmg zip --arm64 --publish never");
     expect(workflow).toContain("checksums.txt.asc");
     expect(workflow).toContain("gpg --verify checksums.txt.asc checksums.txt");
-    expect(workflow).toContain("SuwolView-*.dmg");
+    expect(workflow).toContain("SuwolView-*-mac-arm64.dmg");
     expect(workflow).toContain("latest*.yml");
+    expect(workflow).not.toContain("needs:\n      - windows\n      - linux\n      - macos");
+    expect(attachWorkflow).toContain("name: Attach macOS Release Assets");
+    expect(attachWorkflow).toContain("workflow_dispatch");
+    expect(attachWorkflow).toContain("tag:");
+    expect(attachWorkflow).toContain("Verify tag matches package version");
+    expect(attachWorkflow).toContain("Input tag $TAG_NAME does not match package version");
+    expect(attachWorkflow).toContain("runs-on: [self-hosted, macOS, ARM64]");
+    expect(attachWorkflow).toContain("NOTARY_TIMEOUT_MINUTES: 120");
+    expect(attachWorkflow).toContain("gh release download \"$TAG_NAME\"");
+    expect(attachWorkflow).toContain("gh release upload \"$TAG_NAME\"");
+    expect(attachWorkflow).toContain("latest-mac.yml");
+    expect(attachWorkflow).toContain("checksums.txt.asc");
   });
 });

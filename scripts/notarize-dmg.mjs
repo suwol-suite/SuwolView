@@ -15,7 +15,17 @@ const historyDiagnosticsPath = path.join(diagnosticsDir, "notary-history.json");
 const defaultProfileName = "suwol-notary-profile";
 const commandTimeoutMs = 120000;
 export const POLL_INTERVAL_MS = 30_000;
-export const TIMEOUT_MS = 30 * 60 * 1000;
+export const DEFAULT_TIMEOUT_MINUTES = 30;
+
+export function notaryTimeoutMs(env = process.env) {
+  const timeoutMinutes = Number(env.NOTARY_TIMEOUT_MINUTES || String(DEFAULT_TIMEOUT_MINUTES));
+  if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
+    throw new Error("NOTARY_TIMEOUT_MINUTES must be a positive number.");
+  }
+  return timeoutMinutes * 60 * 1000;
+}
+
+export const TIMEOUT_MS = notaryTimeoutMs();
 
 export function redactSecrets(value, secrets = []) {
   let text = String(value ?? "");
@@ -262,10 +272,11 @@ async function fetchNotaryLog(submissionId, profile) {
 
 async function pollNotaryInfo(submissionId, profile) {
   const startedAt = Date.now();
+  const timeoutMs = notaryTimeoutMs();
   let latestInfo = {};
   let latestStatus = "Unknown";
 
-  while (Date.now() - startedAt < TIMEOUT_MS) {
+  while (Date.now() - startedAt < timeoutMs) {
     const infoResult = await fetchNotaryInfo(submissionId, profile);
     latestInfo = infoResult.json;
     latestStatus = submissionStatusFromResult(latestInfo);
@@ -284,7 +295,7 @@ async function pollNotaryInfo(submissionId, profile) {
     await sleep(POLL_INTERVAL_MS);
   }
 
-  return { timedOut: true, info: latestInfo, status: latestStatus };
+  return { timedOut: true, info: latestInfo, status: latestStatus, timeoutMs };
 }
 
 async function stapleAndValidateDmg(dmgPath) {
@@ -297,7 +308,9 @@ async function stapleAndValidateDmg(dmgPath) {
 async function failWithNotaryLog(submitJson, submissionId, status, profile, options = {}) {
   const { timedOut = false } = options;
   if (timedOut) {
-    console.error(`Notarization timed out after ${TIMEOUT_MS / 60000} minutes.`);
+    const timeoutMinutes = notaryTimeoutMs() / 60000;
+    console.error(`Notarization timed out after ${timeoutMinutes} minutes.`);
+    console.error("The notary submission may still finish later. If it becomes Accepted, staple the DMG and attach the macOS assets to the same GitHub Release manually.");
     await fetchNotaryHistory(profile);
   }
 

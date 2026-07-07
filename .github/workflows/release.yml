@@ -8,10 +8,52 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
-  package_win:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag_name: ${{ steps.meta.outputs.tag_name }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      is_tag: ${{ steps.meta.outputs.is_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_TAG="v$VERSION"
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG_NAME="$GITHUB_REF_NAME"
+            IS_TAG=true
+            if [ "$TAG_NAME" != "$EXPECTED_TAG" ]; then
+              echo "::error::Release tag $TAG_NAME does not match package version $VERSION."
+              exit 1
+            fi
+          else
+            TAG_NAME="$EXPECTED_TAG"
+            IS_TAG=false
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "tag_name=$TAG_NAME"
+            echo "release_name=SuwolView ${TAG_NAME#v}"
+            echo "is_tag=$IS_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+  windows:
     name: Package (win)
+    needs: prepare
     runs-on: windows-latest
 
     steps:
@@ -49,8 +91,9 @@ jobs:
           path: release-artifacts/*
           if-no-files-found: error
 
-  package_linux:
+  linux:
     name: Package (linux)
+    needs: prepare
     runs-on: ubuntu-latest
 
     steps:
@@ -103,10 +146,111 @@ jobs:
           path: release-artifacts/*
           if-no-files-found: error
 
-  package_mac:
+  publish-core-release:
+    name: Publish core Release
+    needs:
+      - prepare
+      - windows
+      - linux
+    runs-on: ubuntu-latest
+    if: needs.prepare.outputs.is_tag == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows and Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-downloads
+          merge-multiple: true
+
+      - name: Create core checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-downloads
+          find . -maxdepth 1 -type f \( \
+            -name "SuwolView-*.AppImage" -o \
+            -name "SuwolView-*.tar.gz" -o \
+            -name "SuwolView-*.deb" -o \
+            -name "SuwolView-*.rpm" -o \
+            -name "SuwolView-*.zip" -o \
+            -name "SuwolView-*.exe" -o \
+            -name "latest*.yml" \
+          \) -print0 | sort -z | xargs -0 -r sha256sum > checksums.txt
+          test -s checksums.txt
+          cat checksums.txt
+
+      - name: Import GPG private key
+        env:
+          GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PRIVATE_KEY_B64"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/suwol-release-private-key.asc"
+          gpg --batch --import "$RUNNER_TEMP/suwol-release-private-key.asc"
+          rm -f "$RUNNER_TEMP/suwol-release-private-key.asc"
+
+      - name: Sign core checksums
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PASSPHRASE"
+          cd release-downloads
+          printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 \
+            --armor --detach-sign checksums.txt
+          test -s checksums.txt.asc
+
+      - name: Verify core checksums
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          set -euo pipefail
+          test -s suwol-release-public-key.asc
+          gpg --import suwol-release-public-key.asc
+          cd release-downloads
+          gpg --verify checksums.txt.asc checksums.txt
+          sha256sum -c checksums.txt
+
+      - name: Write release notes
+        run: |
+          RELEASE_NOTES="docs/release-notes-${GITHUB_REF_NAME#v}.md"
+          test -s "$RELEASE_NOTES"
+          cp "$RELEASE_NOTES" release-notes.md
+
+      - name: Create or update core Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+          RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG_NAME" --repo suwol-suite/SuwolView >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" release-downloads/SuwolView-* release-downloads/latest*.yml release-downloads/checksums.txt release-downloads/checksums.txt.asc suwol-release-public-key.asc \
+              --repo suwol-suite/SuwolView \
+              --clobber
+          else
+            gh release create "$TAG_NAME" release-downloads/SuwolView-* release-downloads/latest*.yml release-downloads/checksums.txt release-downloads/checksums.txt.asc suwol-release-public-key.asc \
+              --repo suwol-suite/SuwolView \
+              --title "$RELEASE_NAME" \
+              --notes-file release-notes.md
+          fi
+
+  macos:
     name: Package (mac arm64)
+    needs:
+      - prepare
+      - publish-core-release
     runs-on: [self-hosted, macOS, ARM64]
-    if: github.event_name != 'pull_request'
+    if: needs.prepare.outputs.is_tag == 'true'
+    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -192,6 +336,7 @@ jobs:
         shell: bash
         env:
           NOTARYTOOL_PROFILE: suwol-notary-profile
+          NOTARY_TIMEOUT_MINUTES: 120
         run: node scripts/notarize-dmg.mjs
 
       - name: Collect release artifact
@@ -200,50 +345,95 @@ jobs:
       - name: Package Smoke Test
         run: npm run package:smoke
 
-      - name: Upload packaged artifact
+      - name: Mark macOS ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p macos-ready
+          printf 'macOS arm64 artifacts are notarized and ready for release attach.\n' > macos-ready/macos-ready.txt
+
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: suwolview-mac-arm64
           path: release-artifacts/*
           if-no-files-found: error
 
-  release:
-    name: Create GitHub Release
+      - name: Upload macOS ready marker
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-ready
+          path: macos-ready/macos-ready.txt
+          if-no-files-found: error
+
+  attach-macos-to-release:
+    name: Attach macOS to Release
     needs:
-      - package_win
-      - package_linux
-      - package_mac
+      - prepare
+      - publish-core-release
+      - macos
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: always() && needs.prepare.outputs.is_tag == 'true' && needs.publish-core-release.result == 'success'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download packaged artifacts
+      - name: Download macOS ready marker
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          path: release-downloads
-          merge-multiple: true
+          name: macos-ready
+          path: macos-ready
 
-      - name: Create checksums
+      - name: Check macOS ready marker
+        id: macos_ready
+        shell: bash
         run: |
           set -euo pipefail
-          cd release-downloads
+          if [ -f macos-ready/macos-ready.txt ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "macOS artifacts are not ready; core Windows/Linux Release remains published."
+          fi
+
+      - name: Download macOS artifacts
+        if: steps.macos_ready.outputs.ready == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: suwolview-mac-arm64
+          path: macos-artifacts
+
+      - name: Download existing Release assets
+        if: steps.macos_ready.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release view "$TAG_NAME" --repo suwol-suite/SuwolView
+          gh release download "$TAG_NAME" --repo suwol-suite/SuwolView --dir release-assets --clobber
+          cp macos-artifacts/SuwolView-*-mac-arm64.dmg release-assets/
+          cp macos-artifacts/SuwolView-*-mac-arm64.zip release-assets/
+          cp macos-artifacts/latest-mac.yml release-assets/
+          rm -f release-assets/checksums.txt release-assets/checksums.txt.asc
+
+      - name: Regenerate complete checksums
+        if: steps.macos_ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          cd release-assets
           find . -maxdepth 1 -type f \( \
-            -name "SuwolView-*.AppImage" -o \
-            -name "SuwolView-*.tar.gz" -o \
-            -name "SuwolView-*.deb" -o \
-            -name "SuwolView-*.rpm" -o \
-            -name "SuwolView-*.dmg" -o \
-            -name "SuwolView-*.zip" -o \
-            -name "SuwolView-*.exe" -o \
+            -name "SuwolView-*" -o \
             -name "latest*.yml" \
           \) -print0 | sort -z | xargs -0 -r sha256sum > checksums.txt
           test -s checksums.txt
           cat checksums.txt
 
       - name: Import GPG private key
+        if: steps.macos_ready.outputs.ready == 'true'
         env:
           GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
           GNUPGHOME: ${{ runner.temp }}/gnupg
@@ -256,45 +446,44 @@ jobs:
           gpg --batch --import "$RUNNER_TEMP/suwol-release-private-key.asc"
           rm -f "$RUNNER_TEMP/suwol-release-private-key.asc"
 
-      - name: Sign checksums
+      - name: Sign complete checksums
+        if: steps.macos_ready.outputs.ready == 'true'
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GNUPGHOME: ${{ runner.temp }}/gnupg
         run: |
           set -euo pipefail
           test -n "$GPG_PASSPHRASE"
-          cd release-downloads
+          cd release-assets
           printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 \
             --armor --detach-sign checksums.txt
           test -s checksums.txt.asc
 
-      - name: Verify GPG signature and checksums
+      - name: Verify complete checksums
+        if: steps.macos_ready.outputs.ready == 'true'
         env:
           GNUPGHOME: ${{ runner.temp }}/gnupg
         run: |
           set -euo pipefail
-          test -s suwol-release-public-key.asc
-          gpg --import suwol-release-public-key.asc
-          cd release-downloads
+          test -s release-assets/suwol-release-public-key.asc
+          gpg --import release-assets/suwol-release-public-key.asc
+          cd release-assets
           gpg --verify checksums.txt.asc checksums.txt
           sha256sum -c checksums.txt
 
-      - name: Write release notes
-        run: |
-          RELEASE_NOTES="docs/release-notes-${GITHUB_REF_NAME#v}.md"
-          test -s "$RELEASE_NOTES"
-          cp "$RELEASE_NOTES" release-notes.md
-
-      - name: Create or update release
+      - name: Upload macOS assets and refreshed checksums
+        if: steps.macos_ready.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: |
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release-downloads/SuwolView-* release-downloads/latest*.yml release-downloads/checksums.txt release-downloads/checksums.txt.asc suwol-release-public-key.asc --clobber
-          else
-            gh release create "$TAG_NAME" release-downloads/SuwolView-* release-downloads/latest*.yml release-downloads/checksums.txt release-downloads/checksums.txt.asc suwol-release-public-key.asc \
-              --title "SuwolView ${TAG_NAME#v}" \
-              --notes-file release-notes.md
-          fi
+          set -euo pipefail
+          gh release upload "$TAG_NAME" \
+            release-assets/SuwolView-*-mac-arm64.dmg \
+            release-assets/SuwolView-*-mac-arm64.zip \
+            release-assets/latest-mac.yml \
+            release-assets/checksums.txt \
+            release-assets/checksums.txt.asc \
+            --repo suwol-suite/SuwolView \
+            --clobber
