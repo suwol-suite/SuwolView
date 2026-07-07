@@ -116,6 +116,22 @@ async function findAppBundle(appOutDir) {
   return foundApps[0];
 }
 
+async function resolveAppBundle(context) {
+  if (context.appPath) {
+    const appPath = path.resolve(context.appPath);
+    if (!(await isDirectory(appPath)) || !appPath.endsWith(".app")) {
+      throw new Error(`Invalid macOS app bundle path: ${relativePath(appPath)}`);
+    }
+    return appPath;
+  }
+
+  if (context.appOutDir) {
+    return findAppBundle(context.appOutDir);
+  }
+
+  throw new Error("macOS app resigning requires an electron-builder appOutDir context or a CLI .app path argument.");
+}
+
 async function findDeveloperIdApplicationIdentity() {
   const { stdout } = await runCommand("security", ["find-identity", "-v", "-p", "codesigning"], "find code signing identities");
   const identities = stdout
@@ -230,10 +246,6 @@ export default async function resignMacApp(context = {}) {
     return;
   }
 
-  if (!context.appOutDir) {
-    throw new Error("electron-builder afterSign context is missing appOutDir.");
-  }
-
   if (!(await exists(appEntitlements))) {
     throw new Error(`Missing app entitlements file: ${relativePath(appEntitlements)}`);
   }
@@ -242,7 +254,7 @@ export default async function resignMacApp(context = {}) {
     throw new Error(`Missing inherited entitlements file: ${relativePath(inheritEntitlements)}`);
   }
 
-  const appBundle = await findAppBundle(context.appOutDir);
+  const appBundle = await resolveAppBundle(context);
   const identity = await findDeveloperIdApplicationIdentity();
   const machOFiles = await collectMachOTargets(appBundle);
   const { nestedApps, frameworks } = await collectBundleTargets(appBundle);
@@ -282,8 +294,14 @@ export default async function resignMacApp(context = {}) {
 
 const isCli = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isCli) {
-  await resignMacApp({
-    appOutDir: process.argv[2] ?? path.join(root, "release", "mac-arm64"),
-    electronPlatformName: "darwin"
-  });
+  await resignMacApp(
+    process.argv[2]
+      ? {
+          appPath: process.argv[2],
+          electronPlatformName: "darwin"
+        }
+      : {
+          electronPlatformName: "darwin"
+        }
+  );
 }

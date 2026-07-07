@@ -58,6 +58,9 @@ describe("release artifact policy", () => {
 
     expect(notarizeScript).toContain("@electron/notarize");
     expect(notarizeScript).toContain("SuwolView-.+-mac-arm64\\.dmg");
+    expect(notarizeScript).toContain("process.argv[2]");
+    expect(notarizeScript).toContain("stapler");
+    expect(notarizeScript).toContain("validate");
     expect(notarizeScript).toContain("APPLE_ID");
     expect(notarizeScript).toContain("APPLE_APP_SPECIFIC_PASSWORD");
     expect(notarizeScript).toContain("APPLE_TEAM_ID");
@@ -72,6 +75,8 @@ describe("release artifact policy", () => {
     expect(resignScript).toContain("Developer ID Application");
     expect(resignScript).toContain("security");
     expect(resignScript).toContain("find-identity");
+    expect(resignScript).toContain("appPath");
+    expect(resignScript).toContain("process.argv[2]");
     expect(resignScript).toContain("process.env.CI");
     expect(resignScript).toContain("Contents\", \"Frameworks");
     expect(resignScript).toContain("app.asar.unpacked");
@@ -84,6 +89,23 @@ describe("release artifact policy", () => {
     expect(resignScript).toContain("codesign");
     expect(resignScript).toContain("--verify");
     expect(resignScript).not.toContain("APPLE_APP_SPECIFIC_PASSWORD)");
+  });
+
+  it("provides a manual macOS signing diagnostics workflow without release uploads", async () => {
+    const workflow = await readFile(".github/workflows/macos-build-diagnostics.yml", "utf8");
+
+    expect(workflow).toContain("name: macOS Build Diagnostics");
+    expect(workflow).toContain("workflow_dispatch");
+    expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64]");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
+    expect(workflow).toContain("npx electron-builder --mac dir --arm64 --publish never");
+    expect(workflow).toContain("node scripts/resign-mac-app.mjs \"$APP_PATH\"");
+    expect(workflow).toContain("npm run dist -- --mac dmg zip --arm64 --publish never");
+    expect(workflow).toContain("node scripts/notarize-dmg.mjs \"$DMG_PATH\"");
+    expect(workflow).toContain("xcrun stapler validate \"$DMG_PATH\"");
+    expect(workflow).toContain("macos-build-diagnostics-0.2.4");
+    expect(workflow).not.toContain("gh release");
+    expect(workflow).not.toContain("Create GitHub Release");
   });
 
   it("signs and uploads checksums from the release workflow", async () => {

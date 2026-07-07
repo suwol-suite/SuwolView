@@ -1,0 +1,271 @@
+name: macOS Build Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-build-diagnostics:
+    name: macOS Build Diagnostics
+    runs-on: [self-hosted, macOS, ARM64]
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Print safe environment summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          {
+            echo "uname:"
+            uname -a
+            echo
+            echo "sw_vers:"
+            sw_vers
+            echo
+            echo "node:"
+            node --version
+            echo
+            echo "npm:"
+            npm --version
+            echo
+            echo "git:"
+            git --version
+            echo
+            echo "xcodebuild:"
+            xcodebuild -version
+            echo
+            echo "xcode-select:"
+            xcode-select -p
+            echo
+            echo "notarytool:"
+            xcrun notarytool --version || true
+          } 2>&1 | tee diagnostics/environment.txt
+
+      - name: Check macOS signing and notarization secrets
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$CSC_LINK" || (echo "CSC_LINK is missing" && exit 1)
+          test -n "$CSC_KEY_PASSWORD" || (echo "CSC_KEY_PASSWORD is missing" && exit 1)
+          test -n "$APPLE_TEAM_ID" || (echo "APPLE_TEAM_ID is missing" && exit 1)
+          test -n "$APPLE_ID" || (echo "APPLE_ID is missing" && exit 1)
+          test -n "$APPLE_APP_SPECIFIC_PASSWORD" || (echo "APPLE_APP_SPECIFIC_PASSWORD is missing" && exit 1)
+          echo "All required macOS signing/notarization secrets are present."
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run icons:generate
+
+      - name: Build app
+        run: npm run build
+
+      - name: Package macOS arm64 dir
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          npx electron-builder --mac dir --arm64 --publish never 2>&1 | tee diagnostics/package-dir.txt
+
+      - name: Inspect signing identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          security find-identity -v -p codesigning 2>&1 | tee diagnostics/signing-identities.txt
+          security find-identity -v -p codesigning | grep "Developer ID Application" || (
+            echo "Developer ID Application identity not found" && exit 1
+          )
+
+      - name: Inspect generated app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find release -maxdepth 3 -name 'SuwolView.app' -type d | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "SuwolView.app not found"
+            find release -maxdepth 4 -print || true
+            exit 1
+          fi
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "Found app: $APP_PATH"
+          {
+            echo "App path: $APP_PATH"
+            echo
+            echo "Release tree:"
+            find release -maxdepth 4 -print
+            echo
+            echo "Mach-O/native files:"
+            find "$APP_PATH" \( -name "*.node" -o -name "*.dylib" -o -perm +111 \) -type f -print || true
+          } 2>&1 | tee diagnostics/app-bundle-files.txt
+
+      - name: Verify app codesign before manual resign
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            codesign --verify --deep --verbose=4 "$APP_PATH" || true
+            codesign -dv --verbose=4 "$APP_PATH" || true
+            find "$APP_PATH" \( -name "*.node" -o -name "*.dylib" \) -type f -print0 | while IFS= read -r -d '' f; do
+              echo "Checking native binary: $f"
+              codesign --verify --verbose=4 "$f" || true
+              codesign -dv --verbose=4 "$f" || true
+            done
+          } 2>&1 | tee diagnostics/app-codesign-before-resign.txt
+
+      - name: Run explicit app resign script if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/resign-mac-app.mjs ]; then
+            echo "scripts/resign-mac-app.mjs not found"
+            exit 1
+          fi
+          node scripts/resign-mac-app.mjs "$APP_PATH" 2>&1 | tee diagnostics/manual-resign.txt
+
+      - name: Verify app codesign after resign
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            codesign --verify --deep --verbose=4 "$APP_PATH"
+            codesign -dv --verbose=4 "$APP_PATH"
+            find "$APP_PATH" \( -name "*.node" -o -name "*.dylib" \) -type f -print0 | while IFS= read -r -d '' f; do
+              echo "Verifying signed native binary: $f"
+              codesign --verify --verbose=4 "$f"
+              codesign -dv --verbose=4 "$f"
+            done
+          } 2>&1 | tee diagnostics/app-codesign-after-resign.txt
+
+      - name: Create macOS DMG/ZIP arm64
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          rm -rf release
+          npm run build
+          npm run dist -- --mac dmg zip --arm64 --publish never 2>&1 | tee diagnostics/package-dmg-zip.txt
+
+          APP_PATH="$(find release -maxdepth 3 -name 'SuwolView.app' -type d | head -n 1)"
+          DMG_PATH="$(find release -maxdepth 2 -name '*.dmg' -type f | head -n 1)"
+          ZIP_PATH="$(find release -maxdepth 2 -name '*.zip' -type f | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "SuwolView.app not found after dist"
+            find release -maxdepth 4 -print || true
+            exit 1
+          fi
+          if [ -z "$DMG_PATH" ]; then
+            echo "DMG not found"
+            find release -maxdepth 4 -print || true
+            exit 1
+          fi
+          if [ -z "$ZIP_PATH" ]; then
+            echo "ZIP not found"
+            find release -maxdepth 4 -print || true
+            exit 1
+          fi
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+          echo "ZIP_PATH=$ZIP_PATH" >> "$GITHUB_ENV"
+          echo "Found app: $APP_PATH"
+          echo "Found DMG: $DMG_PATH"
+          echo "Found ZIP: $ZIP_PATH"
+
+      - name: Verify packaged app codesign
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            codesign --verify --deep --verbose=4 "$APP_PATH"
+            codesign -dv --verbose=4 "$APP_PATH"
+            find "$APP_PATH" \( -name "*.node" -o -name "*.dylib" \) -type f -print0 | while IFS= read -r -d '' f; do
+              echo "Verifying packaged native binary: $f"
+              codesign --verify --verbose=4 "$f"
+              codesign -dv --verbose=4 "$f"
+            done
+          } 2>&1 | tee diagnostics/packaged-app-codesign.txt
+
+      - name: Notarize DMG
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          node scripts/notarize-dmg.mjs "$DMG_PATH" 2>&1 | tee diagnostics/notarize-dmg.txt
+
+      - name: Staple DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun stapler staple "$DMG_PATH" 2>&1 | tee diagnostics/staple-dmg.txt || true
+
+      - name: Validate DMG stapler
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            xcrun stapler validate "$DMG_PATH"
+            spctl -a -vvv -t open --context context:primary-signature "$DMG_PATH" || true
+          } 2>&1 | tee diagnostics/validate-dmg.txt
+
+      - name: Check latest-mac.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+          LATEST_MAC="$(find release -maxdepth 2 -name 'latest-mac.yml' -type f | head -n 1)"
+          if [ -z "$LATEST_MAC" ]; then
+            echo "latest-mac.yml not found"
+            find release -maxdepth 4 -print || true
+            exit 1
+          fi
+          echo "LATEST_MAC=$LATEST_MAC" >> "$GITHUB_ENV"
+          cat "$LATEST_MAC" 2>&1 | tee diagnostics/latest-mac-yml.txt
+
+      - name: Collect diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          {
+            echo "Release files:"
+            find release -maxdepth 3 -type f -print 2>/dev/null || true
+            echo
+            echo "Diagnostics files:"
+            find diagnostics -maxdepth 1 -type f -print 2>/dev/null || true
+          } 2>&1 | tee diagnostics/summary.txt
+
+      - name: Upload diagnostics artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-diagnostics-0.2.4
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/latest-mac.yml
+            diagnostics/*.txt
+          if-no-files-found: warn
