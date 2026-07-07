@@ -19,8 +19,13 @@ jobs:
         include:
           - os: windows-latest
             platform: win
+            artifact_suffix: x64
           - os: ubuntu-latest
             platform: linux
+            artifact_suffix: x64
+          - os: macos-14
+            platform: mac
+            artifact_suffix: universal
 
     steps:
       - name: Checkout
@@ -31,6 +36,49 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+
+      - name: Check macOS signing and notarization secrets
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          has_apple_id=false
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
+            has_apple_id=true
+          fi
+
+          has_api_key=false
+          if [ -n "${APPLE_API_KEY:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "${APPLE_API_ISSUER:-}" ]; then
+            has_api_key=true
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Missing macOS signing secrets: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+          if [ "$has_apple_id" != "true" ] && [ "$has_api_key" != "true" ]; then
+            echo "::error::Missing macOS notarization secrets. Provide APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD, or APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER."
+            exit 1
+          fi
+
+          echo "macOS signing and notarization secret presence check passed."
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -59,11 +107,22 @@ jobs:
 
       - name: Package
         shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           if [ "${{ matrix.platform }}" = "win" ]; then
             npm run dist -- --win zip nsis --publish never
-          else
+          elif [ "${{ matrix.platform }}" = "linux" ]; then
             npm run dist -- --linux AppImage tar.gz --publish never
+          else
+            npm run dist -- --mac dmg zip --universal --publish never
           fi
 
       - name: Collect release artifact
@@ -75,7 +134,7 @@ jobs:
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: suwolview-${{ matrix.platform }}-x64
+          name: suwolview-${{ matrix.platform }}-${{ matrix.artifact_suffix }}
           path: release-artifacts/*
           if-no-files-found: error
 
@@ -104,6 +163,7 @@ jobs:
             -name "SuwolView-*.tar.gz" -o \
             -name "SuwolView-*.deb" -o \
             -name "SuwolView-*.rpm" -o \
+            -name "SuwolView-*.dmg" -o \
             -name "SuwolView-*.zip" -o \
             -name "SuwolView-*.exe" -o \
             -name "latest*.yml" \

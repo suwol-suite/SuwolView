@@ -1293,8 +1293,9 @@ function SettingsPanel({
         />
         <span>{t("settings.checkForUpdatesOnStartup")}</span>
       </label>
+      <p className="settings-note">{t("settings.macSignedUpdateNote")}</p>
       <p className="settings-note">{t("settings.appImageUpdateNote")}</p>
-      <p className="settings-note">{t("settings.tarballUpdateNote")}</p>
+      <p className="settings-note">{t("settings.portableUpdateNote")}</p>
       {runtimeInfo?.safeMode && <p className="settings-note">{t("settings.safeModeUpdateNote")}</p>}
       <div className="settings-actions">
         <button className="panel-command-button" onClick={onCheckForUpdates} disabled={!canCheckForUpdates}>

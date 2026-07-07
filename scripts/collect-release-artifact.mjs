@@ -2,8 +2,8 @@ import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/pro
 import path from "node:path";
 
 const platform = process.argv[2];
-if (platform !== "win" && platform !== "linux") {
-  console.error("Usage: node scripts/collect-release-artifact.mjs <win|linux>");
+if (platform !== "win" && platform !== "linux" && platform !== "mac") {
+  console.error("Usage: node scripts/collect-release-artifact.mjs <win|linux|mac>");
   process.exit(1);
 }
 
@@ -21,9 +21,16 @@ function artifactMatchesPlatform(name) {
     );
   }
 
+  if (platform === "linux") {
+    return (
+      new RegExp(`^SuwolView-${escapeRegExp(version)}-linux-x(?:64|86_64)\\.AppImage$`, "i").test(name) ||
+      new RegExp(`^SuwolView-${escapeRegExp(version)}-linux-x64\\.(?:tar\\.gz|deb|rpm)$`, "i").test(name)
+    );
+  }
+
   return (
-    new RegExp(`^SuwolView-${escapeRegExp(version)}-linux-x(?:64|86_64)\\.AppImage$`, "i").test(name) ||
-    new RegExp(`^SuwolView-${escapeRegExp(version)}-linux-x64\\.(?:tar\\.gz|deb|rpm)$`, "i").test(name)
+    new RegExp(`^SuwolView-${escapeRegExp(version)}-(?:mac|darwin)-(?:universal|x64|arm64)\\.(?:dmg|zip)$`, "i").test(name) ||
+    new RegExp(`^SuwolView-${escapeRegExp(version)}\\.(?:dmg|zip)$`, "i").test(name)
   );
 }
 
@@ -34,6 +41,18 @@ function escapeRegExp(value) {
 function releaseArtifactName(name) {
   if (platform === "linux") {
     return name.replace(/-linux-x86_64\.AppImage$/i, "-linux-x64.AppImage");
+  }
+  if (platform === "mac") {
+    const namedMatch = name.match(
+      new RegExp(`^SuwolView-${escapeRegExp(version)}-(?:mac|darwin)-(universal|x64|arm64)\\.(dmg|zip)$`, "i")
+    );
+    if (namedMatch) {
+      return `SuwolView-${version}-mac-${namedMatch[1].toLowerCase()}.${namedMatch[2].toLowerCase()}`;
+    }
+    const plainMatch = name.match(new RegExp(`^SuwolView-${escapeRegExp(version)}\\.(dmg|zip)$`, "i"));
+    if (plainMatch) {
+      return `SuwolView-${version}-mac-universal.${plainMatch[1].toLowerCase()}`;
+    }
   }
   return name;
 }
@@ -74,6 +93,16 @@ if (platform === "win" && !candidates.some((candidate) => path.basename(candidat
   process.exit(1);
 }
 
+const requiredMacExtensions = [".dmg", ".zip"];
+if (platform === "mac") {
+  for (const extension of requiredMacExtensions) {
+    if (!candidates.some((candidate) => releaseArtifactName(path.basename(candidate.fullPath)).endsWith(extension))) {
+      console.error(`Missing macOS ${extension} artifact in release/.`);
+      process.exit(1);
+    }
+  }
+}
+
 async function copyIfPresent(fileName, options = {}) {
   const sourcePath = path.join(releaseDir, fileName);
   const fileStats = await stat(sourcePath).catch(() => undefined);
@@ -105,6 +134,23 @@ if (platform === "linux") {
     `SuwolView-${version}-linux-x86_64.AppImage`,
     `SuwolView-${version}-linux-x64.AppImage`
   );
+  await writeFile(outputPath, normalizedMetadata);
+  console.log(`Collected ${path.relative(root, outputPath)}.`);
+}
+
+if (platform === "mac") {
+  const sourcePath = path.join(releaseDir, "latest-mac.yml");
+  const fileStats = await stat(sourcePath).catch(() => undefined);
+  if (!fileStats?.isFile()) {
+    console.error("Missing required release metadata: release/latest-mac.yml.");
+    process.exit(1);
+  }
+
+  const outputPath = path.join(outputDir, "latest-mac.yml");
+  const metadata = await readFile(sourcePath, "utf8");
+  const normalizedMetadata = metadata
+    .replaceAll(`SuwolView-${version}-darwin-`, `SuwolView-${version}-mac-`)
+    .replace(new RegExp(`SuwolView-${escapeRegExp(version)}\\.(zip|dmg)`, "g"), `SuwolView-${version}-mac-universal.$1`);
   await writeFile(outputPath, normalizedMetadata);
   console.log(`Collected ${path.relative(root, outputPath)}.`);
 }

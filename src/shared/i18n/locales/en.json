@@ -112,8 +112,9 @@
     "downloadUpdate": "Download update",
     "installAndRestart": "Install and restart",
     "checkForUpdatesOnStartup": "Check for updates on startup",
-    "appImageUpdateNote": "Linux AppImage builds support in-app update checks and downloads.",
-    "tarballUpdateNote": "Linux tar.gz builds are for manual portable use.",
+    "macSignedUpdateNote": "macOS signed builds support in-app update checks.",
+    "appImageUpdateNote": "Linux AppImage builds support in-app update checks.",
+    "portableUpdateNote": "Portable archives may require manual updates.",
     "safeModeUpdateNote": "Update checks are disabled in Safe Mode."
   },
   "updates": {
@@ -165,7 +166,7 @@
     "metadataSkippedSafeMode": "Metadata reading is reduced in safe mode.",
     "updateDisabledDev": "Update checks are disabled in development mode.",
     "updateDisabledSafeMode": "Update checks are disabled in Safe Mode.",
-    "updateUnsupportedPlatform": "In-app update checks are available for Linux AppImage builds.",
+    "updateUnsupportedPlatform": "In-app update checks are available for macOS signed builds and Linux AppImage builds.",
     "updateUnsupportedLinuxPackage": "This Linux package uses manual updates.",
     "updateUnsupported": "Update checks are not supported here.",
     "updateCheckFailed": "Failed to check for updates.",

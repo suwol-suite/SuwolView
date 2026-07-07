@@ -10,15 +10,32 @@ describe("release artifact policy", () => {
     expect(builderConfig).toContain("repo: SuwolView");
     expect(builderConfig).toContain("target: AppImage");
     expect(builderConfig).toContain("target: tar.gz");
+    expect(builderConfig).toContain("target: dmg");
+    expect(builderConfig).toContain("target: zip");
+    expect(builderConfig).toContain("hardenedRuntime: true");
+    expect(builderConfig).toContain("notarize: true");
+    expect(builderConfig).toContain("entitlements.mac.plist");
   });
 
-  it("collects Linux update metadata and public key for releases", async () => {
+  it("collects Linux and macOS update metadata and public key for releases", async () => {
     const collectScript = await readFile("scripts/collect-release-artifact.mjs", "utf8");
 
     expect(collectScript).toContain("latest-linux.yml");
+    expect(collectScript).toContain("latest-mac.yml");
     expect(collectScript).toContain("suwol-release-public-key.asc");
     expect(collectScript).toContain("Missing required release metadata");
     expect(collectScript).toContain("linux-x86_64.AppImage");
+    expect(collectScript).toContain("darwin");
+    expect(collectScript).toContain("mac-universal");
+  });
+
+  it("smoke tests macOS release artifacts and signing checks when present", async () => {
+    const smokeScript = await readFile("scripts/package-smoke-test.mjs", "utf8");
+
+    expect(smokeScript).toContain("latest-mac\\.yml");
+    expect(smokeScript).toContain("codesign");
+    expect(smokeScript).toContain("stapler");
+    expect(smokeScript).toContain("macOS signing and notarization checks skipped on non-macOS host");
   });
 
   it("signs and uploads checksums from the release workflow", async () => {
@@ -26,8 +43,13 @@ describe("release artifact policy", () => {
 
     expect(workflow).toContain("GPG_PRIVATE_KEY_B64");
     expect(workflow).toContain("GPG_PASSPHRASE");
+    expect(workflow).toContain("macos-14");
+    expect(workflow).toContain("CSC_LINK");
+    expect(workflow).toContain("APPLE_APP_SPECIFIC_PASSWORD");
+    expect(workflow).toContain("APPLE_API_KEY_ID");
     expect(workflow).toContain("checksums.txt.asc");
     expect(workflow).toContain("gpg --verify checksums.txt.asc checksums.txt");
+    expect(workflow).toContain("SuwolView-*.dmg");
     expect(workflow).toContain("latest*.yml");
   });
 });

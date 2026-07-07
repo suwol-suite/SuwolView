@@ -38,6 +38,12 @@ export function resolveUpdateSupport(options: UpdateRuntimeOptions): UpdateSuppo
       reason: appFailure("UPDATE_DISABLED_SAFE_MODE", "errors.updateDisabledSafeMode")
     };
   }
+  if (options.platform === "darwin") {
+    return {
+      supported: true,
+      status: "idle"
+    };
+  }
   if (options.platform !== "linux") {
     return {
       supported: false,

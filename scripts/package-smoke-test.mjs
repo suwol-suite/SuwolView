@@ -1,7 +1,10 @@
 import { access, readFile, readdir, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 import * as yauzl from "yauzl";
 
+const execFileAsync = promisify(execFile);
 const root = process.cwd();
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const packageVersion = typeof packageJson.version === "string" ? packageJson.version : "";
@@ -145,6 +148,7 @@ async function listZipEntries(zipPath) {
 
 function packagePlatform(fileName) {
   if (/win/i.test(fileName)) return "win";
+  if (/mac|darwin/i.test(fileName)) return "mac";
   if (/linux|suwol-view/i.test(fileName)) return "linux";
   return "unknown";
 }
@@ -162,12 +166,25 @@ function executableLooksPresent(zipEntries, platform) {
         /^suwol-view$/i.test(entry)
     );
   }
+  if (platform === "mac") {
+    return zipEntries.some(
+      (entry) =>
+        /\/SuwolView\.app\/Contents\/MacOS\/SuwolView$/i.test(entry) ||
+        /^SuwolView\.app\/Contents\/MacOS\/SuwolView$/i.test(entry)
+    );
+  }
   return zipEntries.some((entry) => entry.endsWith("/resources/app.asar") || entry === "resources/app.asar");
 }
 
 function assertZipResources(zipEntries, platform, zipName) {
   for (const resource of requiredPackagedResources) {
-    const found = zipEntries.some((entry) => entry.endsWith(`/${resource}`) || entry === resource);
+    const macResource = resource.replace(/^resources\//, "Contents/Resources/");
+    const found = zipEntries.some((entry) => {
+      if (platform === "mac") {
+        return entry.endsWith(`/SuwolView.app/${macResource}`) || entry === `SuwolView.app/${macResource}`;
+      }
+      return entry.endsWith(`/${resource}`) || entry === resource;
+    });
     if (!found) {
       failures.push(`${zipName} missing: ${resource}`);
     }
@@ -259,6 +276,17 @@ async function firstExistingFile(directoryPath, fileNames) {
   return undefined;
 }
 
+async function firstMatchingFile(directoryPath, patterns) {
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  for (const pattern of patterns) {
+    const found = entries.find((entry) => entry.isFile() && pattern.test(entry.name));
+    if (found) {
+      return found.name;
+    }
+  }
+  return undefined;
+}
+
 async function checkLinuxReleaseArtifacts(buildMtime) {
   const releaseDir = path.join(root, "release");
   if (!(await exists(releaseDir))) {
@@ -299,6 +327,99 @@ async function checkLinuxReleaseArtifacts(buildMtime) {
   }
 }
 
+async function findAppBundles(directoryPath, depth = 0) {
+  if (depth > 3 || !(await exists(directoryPath))) return [];
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const bundles = [];
+  for (const entry of entries) {
+    const fullPath = path.join(directoryPath, entry.name);
+    if (entry.isDirectory() && entry.name.endsWith(".app")) {
+      bundles.push(fullPath);
+      continue;
+    }
+    if (entry.isDirectory()) {
+      bundles.push(...(await findAppBundles(fullPath, depth + 1)));
+    }
+  }
+  return bundles;
+}
+
+async function checkCommand(command, args, label) {
+  try {
+    await execFileAsync(command, args, { cwd: root, timeout: 120000 });
+    notes.push(`${label} passed.`);
+  } catch (error) {
+    failures.push(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function checkMacSigningAndStapling(releaseDir, dmgFileName) {
+  if (process.platform !== "darwin") {
+    notes.push("macOS signing and notarization checks skipped on non-macOS host.");
+    return;
+  }
+
+  const appBundles = await findAppBundles(releaseDir);
+  if (appBundles.length === 0) {
+    failures.push("No macOS .app bundle found for codesign verification.");
+  }
+  for (const appBundle of appBundles) {
+    await checkCommand("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appBundle], `codesign verify ${path.relative(root, appBundle)}`);
+    await checkCommand("xcrun", ["stapler", "validate", appBundle], `stapler validate ${path.relative(root, appBundle)}`);
+  }
+
+  if (dmgFileName) {
+    await checkCommand("xcrun", ["stapler", "validate", path.join(releaseDir, dmgFileName)], `stapler validate release/${dmgFileName}`);
+  }
+}
+
+async function checkMacReleaseArtifacts(buildMtime) {
+  const releaseDir = path.join(root, "release");
+  if (!(await exists(releaseDir))) {
+    return;
+  }
+
+  const expectedFiles = [
+    [/^SuwolView-.+-mac-(?:universal|x64|arm64)\.dmg$/i, /^SuwolView-.+-darwin-(?:universal|x64|arm64)\.dmg$/i],
+    [/^SuwolView-.+-mac-(?:universal|x64|arm64)\.zip$/i, /^SuwolView-.+-darwin-(?:universal|x64|arm64)\.zip$/i],
+    [/^latest-mac\.yml$/i]
+  ];
+
+  let foundAny = false;
+  const missingExpectedFiles = [];
+  let dmgFileName;
+  for (const patterns of expectedFiles) {
+    const resolvedFileName = await firstMatchingFile(releaseDir, patterns);
+    if (!resolvedFileName) {
+      missingExpectedFiles.push(patterns.map((pattern) => pattern.source).join(" or "));
+      continue;
+    }
+    const fullPath = path.join(releaseDir, resolvedFileName);
+    foundAny = true;
+    if (/\.dmg$/i.test(resolvedFileName)) {
+      dmgFileName = resolvedFileName;
+    }
+    const artifactStats = await stat(fullPath);
+    if (artifactStats.mtimeMs < buildMtime) {
+      failures.push(`macOS artifact is older than the latest build: ${path.relative(root, fullPath)}`);
+    }
+    if (artifactStats.size <= 0) {
+      failures.push(`macOS artifact is empty: ${path.relative(root, fullPath)}`);
+    }
+    notes.push(`Inspected macOS artifact: ${path.relative(root, fullPath)}`);
+  }
+
+  const hasMacArtifact = (await readdir(releaseDir, { withFileTypes: true })).some(
+    (entry) => entry.isFile() && /^SuwolView-.+-(?:mac|darwin)-(?:universal|x64|arm64)\.(?:dmg|zip)$/i.test(entry.name)
+  );
+  if (hasMacArtifact && (!foundAny || missingExpectedFiles.length > 0)) {
+    failures.push(`macOS release build missing required files: ${missingExpectedFiles.join(", ")}`);
+  }
+  if (hasMacArtifact) {
+    await checkMacSigningAndStapling(releaseDir, dmgFileName);
+  }
+}
+
 async function checkWindowsInstaller(buildMtime) {
   const releaseDir = path.join(root, "release");
   const expectedInstaller = path.join(releaseDir, `SuwolView-${packageVersion}-setup.exe`);
@@ -322,6 +443,7 @@ const buildMtime = await outputMtime();
 await checkWinUnpacked(buildMtime);
 await checkPackagedZips(buildMtime);
 await checkLinuxReleaseArtifacts(buildMtime);
+await checkMacReleaseArtifacts(buildMtime);
 await assertNoForbiddenReleaseFiles(path.join(root, "release"));
 await assertNoForbiddenReleaseFiles(path.join(root, "release-artifacts"));
 

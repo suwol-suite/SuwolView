@@ -119,6 +119,23 @@ nsis:
   createStartMenuShortcut: true
   uninstallDisplayName: SuwolView
 
+mac:
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  category: public.app-category.graphics-design
+  icon: assets/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+
 linux:
   category: Graphics
   icon: assets/icon.png
