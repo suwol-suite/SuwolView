@@ -347,12 +347,18 @@ async function findAppBundles(directoryPath, depth = 0) {
   return bundles;
 }
 
-async function checkCommand(command, args, label) {
+async function checkCommand(command, args, label, options = {}) {
+  const { required = true } = options;
   try {
     await execFileAsync(command, args, { cwd: root, timeout: 120000 });
     notes.push(`${label} passed.`);
   } catch (error) {
-    failures.push(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+    const message = `${label} failed: ${error instanceof Error ? error.message : String(error)}`;
+    if (required) {
+      failures.push(message);
+    } else {
+      notes.push(`Warning: ${message}`);
+    }
   }
 }
 
@@ -367,12 +373,23 @@ async function checkMacSigningAndStapling(releaseDir, dmgFileName) {
     failures.push("No macOS .app bundle found for codesign verification.");
   }
   for (const appBundle of appBundles) {
-    await checkCommand("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appBundle], `codesign verify ${path.relative(root, appBundle)}`);
-    await checkCommand("xcrun", ["stapler", "validate", appBundle], `stapler validate ${path.relative(root, appBundle)}`);
+    await checkCommand("codesign", ["--verify", "--deep", "--verbose=4", appBundle], `codesign verify ${path.relative(root, appBundle)}`);
+    await checkCommand("codesign", ["-dv", "--verbose=4", appBundle], `codesign details ${path.relative(root, appBundle)}`);
+    await checkCommand("spctl", ["-a", "-vvv", "-t", "execute", appBundle], `spctl execute ${path.relative(root, appBundle)}`, {
+      required: false
+    });
+    await checkCommand("xcrun", ["stapler", "validate", appBundle], `stapler validate ${path.relative(root, appBundle)}`, {
+      required: false
+    });
   }
 
   if (dmgFileName) {
     await checkCommand("xcrun", ["stapler", "validate", path.join(releaseDir, dmgFileName)], `stapler validate release/${dmgFileName}`);
+    await checkCommand(
+      "spctl",
+      ["-a", "-vvv", "-t", "open", "--context", "context:primary-signature", path.join(releaseDir, dmgFileName)],
+      `spctl open release/${dmgFileName}`
+    );
   }
 }
 

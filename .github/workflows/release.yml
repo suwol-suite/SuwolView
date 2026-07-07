@@ -161,6 +161,14 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: npm run dist -- --mac dmg zip --arm64 --publish never
 
+      - name: Notarize macOS DMG
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: node scripts/notarize-dmg.mjs
+
       - name: Collect release artifact
         run: node scripts/collect-release-artifact.mjs mac
 

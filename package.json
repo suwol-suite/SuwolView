@@ -53,6 +53,7 @@
     "yauzl": "3.4.0"
   },
   "devDependencies": {
+    "@electron/notarize": "2.5.0",
     "@eslint/js": "10.0.1",
     "@types/node": "26.1.0",
     "@types/react": "19.2.17",

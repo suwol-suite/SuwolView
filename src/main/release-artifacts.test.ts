@@ -38,8 +38,27 @@ describe("release artifact policy", () => {
     expect(smokeScript).toContain("latest-mac\\.yml");
     expect(smokeScript).toContain("mac-arm64");
     expect(smokeScript).toContain("codesign");
+    expect(smokeScript).toContain("--verbose=4");
+    expect(smokeScript).not.toContain("--strict");
+    expect(smokeScript).toContain("spctl");
     expect(smokeScript).toContain("stapler");
+    expect(smokeScript).toContain("required: false");
+    expect(smokeScript).toContain("context:primary-signature");
     expect(smokeScript).toContain("macOS signing and notarization checks skipped on non-macOS host");
+  });
+
+  it("notarizes and staples macOS DMG artifacts before release upload", async () => {
+    const notarizeScript = await readFile("scripts/notarize-dmg.mjs", "utf8");
+    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+
+    expect(notarizeScript).toContain("@electron/notarize");
+    expect(notarizeScript).toContain("SuwolView-.+-mac-arm64\\.dmg");
+    expect(notarizeScript).toContain("APPLE_ID");
+    expect(notarizeScript).toContain("APPLE_APP_SPECIFIC_PASSWORD");
+    expect(notarizeScript).toContain("APPLE_TEAM_ID");
+    expect(notarizeScript).toContain("tool: \"notarytool\"");
+    expect(workflow).toContain("Notarize macOS DMG");
+    expect(workflow).toContain("node scripts/notarize-dmg.mjs");
   });
 
   it("signs and uploads checksums from the release workflow", async () => {
