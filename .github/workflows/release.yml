@@ -118,6 +118,29 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Unlock macOS keychain
+        shell: bash
+        env:
+          MAC_KEYCHAIN_PASSWORD: ${{ secrets.MAC_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MAC_KEYCHAIN_PASSWORD:-}" ]; then
+            echo "MAC_KEYCHAIN_PASSWORD secret is missing."
+            exit 1
+          fi
+
+          LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+          security unlock-keychain -p "$MAC_KEYCHAIN_PASSWORD" "$LOGIN_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$LOGIN_KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MAC_KEYCHAIN_PASSWORD" "$LOGIN_KEYCHAIN"
+
+          security default-keychain -s "$LOGIN_KEYCHAIN"
+          security list-keychains -d user -s "$LOGIN_KEYCHAIN"
+
+          echo "macOS login keychain unlocked for codesign/notarytool."
+
       - name: Check macOS signing and notary profile
         shell: bash
         env:
@@ -139,6 +162,12 @@ jobs:
             exit 1
           fi
 
+          security find-identity -v -p codesigning
+          security find-identity -v -p codesigning | grep "Developer ID Application" || (
+            echo "Developer ID Application identity not found" && exit 1
+          )
+          NOTARY_HISTORY="$(xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE")"
+          printf '%s\n' "$NOTARY_HISTORY" | head -n 20
           xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE" --output-format json >/dev/null
           echo "macOS signing secret and notarytool keychain profile check passed."
 

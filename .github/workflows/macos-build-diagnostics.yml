@@ -53,6 +53,29 @@ jobs:
             xcrun notarytool --version || true
           } 2>&1 | tee diagnostics/environment.txt
 
+      - name: Unlock macOS keychain
+        shell: bash
+        env:
+          MAC_KEYCHAIN_PASSWORD: ${{ secrets.MAC_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MAC_KEYCHAIN_PASSWORD:-}" ]; then
+            echo "MAC_KEYCHAIN_PASSWORD secret is missing."
+            exit 1
+          fi
+
+          LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+          security unlock-keychain -p "$MAC_KEYCHAIN_PASSWORD" "$LOGIN_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$LOGIN_KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MAC_KEYCHAIN_PASSWORD" "$LOGIN_KEYCHAIN"
+
+          security default-keychain -s "$LOGIN_KEYCHAIN"
+          security list-keychains -d user -s "$LOGIN_KEYCHAIN"
+
+          echo "macOS login keychain unlocked for codesign/notarytool."
+
       - name: Check macOS signing and notary profile
         shell: bash
         env:
@@ -63,7 +86,14 @@ jobs:
           set -euo pipefail
           test -n "$CSC_LINK" || (echo "CSC_LINK is missing" && exit 1)
           test -n "$CSC_KEY_PASSWORD" || (echo "CSC_KEY_PASSWORD is missing" && exit 1)
+          NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-suwol-notary-profile}"
           test -n "$NOTARYTOOL_PROFILE" || (echo "NOTARYTOOL_PROFILE is missing" && exit 1)
+          security find-identity -v -p codesigning 2>&1 | tee diagnostics/signing-identities-preflight.txt
+          security find-identity -v -p codesigning | grep "Developer ID Application" || (
+            echo "Developer ID Application identity not found" && exit 1
+          )
+          xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE" > diagnostics/notary-profile-history.txt
+          head -n 20 diagnostics/notary-profile-history.txt
           xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE" --output-format json > diagnostics/notary-profile-history.json
           echo "Required macOS signing secrets and notarytool keychain profile are present."
 
