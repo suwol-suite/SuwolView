@@ -66,30 +66,48 @@ describe("release artifact policy", () => {
     expect(notarizeScript).toContain("process.argv[2]");
     expect(notarizeScript).toContain("notarytool");
     expect(notarizeScript).toContain("submit");
+    expect(notarizeScript).toContain("info");
     expect(notarizeScript).toContain("log");
+    expect(notarizeScript).toContain("history");
     expect(notarizeScript).toContain("notary-submit.json");
+    expect(notarizeScript).toContain("notary-info.json");
     expect(notarizeScript).toContain("notary-log.json");
+    expect(notarizeScript).toContain("notary-history.json");
+    expect(notarizeScript).toContain("--keychain-profile");
+    expect(notarizeScript).toContain("suwol-notary-profile");
+    expect(notarizeScript).toContain("NOTARYTOOL_PROFILE");
+    expect(notarizeScript).toContain("POLL_INTERVAL_MS");
+    expect(notarizeScript).toContain("TIMEOUT_MS");
     expect(notarizeScript).toContain("--output-format");
     expect(notarizeScript).toContain("json");
     expect(notarizeScript).toContain("formatNotaryFailure");
     expect(notarizeScript).toContain("stapler");
     expect(notarizeScript).toContain("staple");
     expect(notarizeScript).toContain("validate");
-    expect(notarizeScript).toContain("APPLE_ID");
-    expect(notarizeScript).toContain("APPLE_APP_SPECIFIC_PASSWORD");
-    expect(notarizeScript).toContain("APPLE_TEAM_ID");
+    expect(notarizeScript).not.toContain("APPLE_APP_SPECIFIC_PASSWORD");
+    expect(notarizeScript).not.toContain("--password");
+    expect(notarizeScript).not.toContain("--apple-id");
+    expect(notarizeScript).not.toContain("--team-id");
+    expect(notarizeScript).not.toContain("--wait");
     expect(workflow).toContain("Notarize macOS DMG");
     expect(workflow).toContain("node scripts/notarize-dmg.mjs");
   });
 
-  it("formats notarytool failures and redacts notarization secrets", async () => {
+  it("uses keychain-profile arguments, polling status helpers, and redacted notary failures", async () => {
     const scriptUrl = pathToFileURL(path.join(process.cwd(), "scripts", "notarize-dmg.mjs")).href;
     const evalScript = `
       import {
+        POLL_INTERVAL_MS,
+        TIMEOUT_MS,
         formatNotaryFailure,
+        infoArgs,
         isAcceptedNotaryStatus,
-        missingRequiredEnv,
-        redactSecrets
+        isFailedNotaryStatus,
+        isPendingNotaryStatus,
+        logArgs,
+        notarytoolProfile,
+        redactSecrets,
+        submitArgs
       } from ${JSON.stringify(scriptUrl)};
 
       const submit = { id: "abc-123", status: "Invalid", message: "Upload failed" };
@@ -108,12 +126,16 @@ describe("release artifact policy", () => {
 
       console.log(JSON.stringify({
         accepted: isAcceptedNotaryStatus("Accepted"),
-        missing: missingRequiredEnv({ APPLE_ID: "dev@example.com", APPLE_TEAM_ID: "TEAMID" }),
-        redacted: redactSecrets("dev@example.com super-secret TEAMID", {
-          APPLE_ID: "dev@example.com",
-          APPLE_APP_SPECIFIC_PASSWORD: "super-secret",
-          APPLE_TEAM_ID: "TEAMID"
-        }),
+        failed: isFailedNotaryStatus("Rejected"),
+        pending: isPendingNotaryStatus("In Progress"),
+        profileDefault: notarytoolProfile({}),
+        profileOverride: notarytoolProfile({ NOTARYTOOL_PROFILE: "custom-profile" }),
+        pollInterval: POLL_INTERVAL_MS,
+        timeout: TIMEOUT_MS,
+        submitArgs: submitArgs("release/app.dmg", "profile-name"),
+        infoArgs: infoArgs("abc-123", "profile-name"),
+        logArgs: logArgs("abc-123", "profile-name"),
+        redacted: redactSecrets("profile secret token", ["secret"]),
         summary: formatNotaryFailure(submit, log)
       }));
     `;
@@ -124,8 +146,20 @@ describe("release artifact policy", () => {
     const parsed = JSON.parse(stdout);
 
     expect(parsed.accepted).toBe(true);
-    expect(parsed.missing).toEqual(["APPLE_APP_SPECIFIC_PASSWORD"]);
-    expect(parsed.redacted).toBe("*** *** ***");
+    expect(parsed.failed).toBe(true);
+    expect(parsed.pending).toBe(true);
+    expect(parsed.profileDefault).toBe("suwol-notary-profile");
+    expect(parsed.profileOverride).toBe("custom-profile");
+    expect(parsed.pollInterval).toBe(30000);
+    expect(parsed.timeout).toBe(1800000);
+    expect(parsed.submitArgs).toContain("--keychain-profile");
+    expect(parsed.submitArgs).toContain("profile-name");
+    expect(parsed.submitArgs).not.toContain("--password");
+    expect(parsed.submitArgs).not.toContain("--apple-id");
+    expect(parsed.submitArgs).not.toContain("--team-id");
+    expect(parsed.infoArgs).toContain("info");
+    expect(parsed.logArgs).toContain("log");
+    expect(parsed.redacted).toBe("profile *** token");
     expect(parsed.summary).toContain("Notarization failed.");
     expect(parsed.summary).toContain("Submission ID: abc-123");
     expect(parsed.summary).toContain("Status: Invalid");
@@ -179,6 +213,8 @@ describe("release artifact policy", () => {
     expect(workflow).toContain("npm run dist -- --mac dmg zip --arm64 --publish never");
     expect(workflow).toContain("node scripts/notarize-dmg.mjs \"$DMG_PATH\"");
     expect(workflow).toContain("xcrun stapler validate \"$DMG_PATH\"");
+    expect(workflow).toContain("NOTARYTOOL_PROFILE: suwol-notary-profile");
+    expect(workflow).not.toContain("APPLE_APP_SPECIFIC_PASSWORD");
     expect(workflow).toContain("diagnostics/*.json");
     expect(workflow).toContain("macos-build-diagnostics-0.2.4");
     expect(workflow).not.toContain("gh release");
@@ -192,7 +228,10 @@ describe("release artifact policy", () => {
     expect(workflow).toContain("GPG_PASSPHRASE");
     expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64]");
     expect(workflow).toContain("CSC_LINK");
-    expect(workflow).toContain("APPLE_APP_SPECIFIC_PASSWORD");
+    expect(workflow).toContain("CSC_KEY_PASSWORD");
+    expect(workflow).toContain("APPLE_TEAM_ID");
+    expect(workflow).toContain("NOTARYTOOL_PROFILE: suwol-notary-profile");
+    expect(workflow).not.toContain("APPLE_APP_SPECIFIC_PASSWORD");
     expect(workflow).toContain("--mac dmg zip --arm64 --publish never");
     expect(workflow).toContain("checksums.txt.asc");
     expect(workflow).toContain("gpg --verify checksums.txt.asc checksums.txt");

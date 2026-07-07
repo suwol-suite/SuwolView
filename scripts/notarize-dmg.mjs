@@ -9,16 +9,17 @@ const root = process.cwd();
 const releaseDir = path.join(root, "release");
 const diagnosticsDir = path.join(root, "diagnostics");
 const submitDiagnosticsPath = path.join(diagnosticsDir, "notary-submit.json");
+const infoDiagnosticsPath = path.join(diagnosticsDir, "notary-info.json");
 const logDiagnosticsPath = path.join(diagnosticsDir, "notary-log.json");
-const requiredEnvVars = ["APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"];
-const secretEnvNames = [...requiredEnvVars];
+const historyDiagnosticsPath = path.join(diagnosticsDir, "notary-history.json");
+const defaultProfileName = "suwol-notary-profile";
 const commandTimeoutMs = 120000;
-const notarySubmitTimeoutMs = 45 * 60 * 1000;
+export const POLL_INTERVAL_MS = 30_000;
+export const TIMEOUT_MS = 30 * 60 * 1000;
 
-export function redactSecrets(value, env = process.env) {
+export function redactSecrets(value, secrets = []) {
   let text = String(value ?? "");
-  for (const name of secretEnvNames) {
-    const secret = env[name];
+  for (const secret of secrets) {
     if (secret) {
       text = text.replaceAll(secret, "***");
     }
@@ -26,21 +27,12 @@ export function redactSecrets(value, env = process.env) {
   return text;
 }
 
-export function missingRequiredEnv(env = process.env) {
-  return requiredEnvVars.filter((name) => !env[name]);
-}
-
-function requiredCredentials(env = process.env) {
-  const missing = missingRequiredEnv(env);
-  if (missing.length > 0) {
-    throw new Error(`Missing required macOS notarization environment variable(s): ${missing.join(", ")}`);
+export function notarytoolProfile(env = process.env) {
+  const profile = String(env.NOTARYTOOL_PROFILE || defaultProfileName).trim();
+  if (!profile) {
+    throw new Error("Missing notarytool keychain profile name.");
   }
-
-  return {
-    appleId: env.APPLE_ID,
-    password: env.APPLE_APP_SPECIFIC_PASSWORD,
-    teamId: env.APPLE_TEAM_ID
-  };
+  return profile;
 }
 
 async function fileExists(filePath) {
@@ -77,6 +69,26 @@ async function resolveDmgPath(explicitPath) {
 
 function relativePath(filePath) {
   return path.relative(root, filePath) || filePath;
+}
+
+function profileArgs(profile) {
+  return ["--keychain-profile", profile, "--output-format", "json"];
+}
+
+export function submitArgs(dmgPath, profile) {
+  return ["notarytool", "submit", dmgPath, ...profileArgs(profile)];
+}
+
+export function infoArgs(submissionId, profile) {
+  return ["notarytool", "info", submissionId, ...profileArgs(profile)];
+}
+
+export function logArgs(submissionId, profile) {
+  return ["notarytool", "log", submissionId, ...profileArgs(profile)];
+}
+
+export function historyArgs(profile) {
+  return ["notarytool", "history", ...profileArgs(profile)];
 }
 
 async function runCommand(command, args, label, options = {}) {
@@ -150,6 +162,12 @@ async function runJsonCommand(command, args, label, diagnosticsPath, options = {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export function submissionIdFromResult(submitResult, logResult) {
   return submitResult?.id ?? submitResult?.submissionId ?? logResult?.jobId ?? logResult?.id ?? "";
 }
@@ -158,8 +176,24 @@ export function submissionStatusFromResult(submitResult, logResult) {
   return submitResult?.status ?? logResult?.status ?? "Unknown";
 }
 
+export function normalizeStatus(status) {
+  return String(status ?? "")
+    .trim()
+    .toLowerCase();
+}
+
 export function isAcceptedNotaryStatus(status) {
-  return String(status ?? "").toLowerCase() === "accepted";
+  return normalizeStatus(status) === "accepted";
+}
+
+export function isFailedNotaryStatus(status) {
+  const normalized = normalizeStatus(status);
+  return normalized === "invalid" || normalized === "rejected";
+}
+
+export function isPendingNotaryStatus(status) {
+  const normalized = normalizeStatus(status);
+  return normalized === "in progress" || normalized === "uploaded" || normalized === "created";
 }
 
 export function formatNotaryFailure(submitResult = {}, logResult = {}) {
@@ -194,54 +228,63 @@ export function formatNotaryFailure(submitResult = {}, logResult = {}) {
   return lines.join("\n");
 }
 
-async function submitDmg(dmgPath, credentials) {
+async function submitDmg(dmgPath, profile) {
   return runJsonCommand(
     "xcrun",
-    [
-      "notarytool",
-      "submit",
-      dmgPath,
-      "--apple-id",
-      credentials.appleId,
-      "--password",
-      credentials.password,
-      "--team-id",
-      credentials.teamId,
-      "--wait",
-      "--output-format",
-      "json"
-    ],
+    submitArgs(dmgPath, profile),
     `notarytool submit ${relativePath(dmgPath)}`,
-    submitDiagnosticsPath,
-    { timeoutMs: notarySubmitTimeoutMs }
+    submitDiagnosticsPath
   );
 }
 
-async function fetchNotaryLog(submissionId, credentials) {
+async function fetchNotaryInfo(submissionId, profile) {
+  return runJsonCommand(
+    "xcrun",
+    infoArgs(submissionId, profile),
+    `notarytool info ${submissionId}`,
+    infoDiagnosticsPath
+  );
+}
+
+async function fetchNotaryHistory(profile) {
+  return runJsonCommand("xcrun", historyArgs(profile), "notarytool history", historyDiagnosticsPath);
+}
+
+async function fetchNotaryLog(submissionId, profile) {
   if (!submissionId) {
     const payload = { error: "Cannot fetch notarytool log without a submission id." };
     await writeDiagnosticsJson(logDiagnosticsPath, payload);
     return { json: payload, failed: true };
   }
 
-  return runJsonCommand(
-    "xcrun",
-    [
-      "notarytool",
-      "log",
-      submissionId,
-      "--apple-id",
-      credentials.appleId,
-      "--password",
-      credentials.password,
-      "--team-id",
-      credentials.teamId,
-      "--output-format",
-      "json"
-    ],
-    `notarytool log ${submissionId}`,
-    logDiagnosticsPath
-  );
+  return runJsonCommand("xcrun", logArgs(submissionId, profile), `notarytool log ${submissionId}`, logDiagnosticsPath);
+}
+
+async function pollNotaryInfo(submissionId, profile) {
+  const startedAt = Date.now();
+  let latestInfo = {};
+  let latestStatus = "Unknown";
+
+  while (Date.now() - startedAt < TIMEOUT_MS) {
+    const infoResult = await fetchNotaryInfo(submissionId, profile);
+    latestInfo = infoResult.json;
+    latestStatus = submissionStatusFromResult(latestInfo);
+    console.log(`Notarization status: ${latestStatus}`);
+
+    if (infoResult.failed) {
+      return { timedOut: false, info: latestInfo, status: latestStatus };
+    }
+    if (isAcceptedNotaryStatus(latestStatus) || isFailedNotaryStatus(latestStatus)) {
+      return { timedOut: false, info: latestInfo, status: latestStatus };
+    }
+    if (!isPendingNotaryStatus(latestStatus)) {
+      return { timedOut: false, info: latestInfo, status: latestStatus };
+    }
+
+    await sleep(POLL_INTERVAL_MS);
+  }
+
+  return { timedOut: true, info: latestInfo, status: latestStatus };
 }
 
 async function stapleAndValidateDmg(dmgPath) {
@@ -251,33 +294,49 @@ async function stapleAndValidateDmg(dmgPath) {
   console.log("Stapler validation succeeded.");
 }
 
-export async function notarizeDmg(dmgPath) {
-  const credentials = requiredCredentials();
-  const submitResult = await submitDmg(dmgPath, credentials);
-  const submitJson = submitResult.json;
-  const submissionId = submissionIdFromResult(submitJson);
-  const status = submissionStatusFromResult(submitJson);
-
-  if (submissionId) {
-    console.log(`Submission ID: ${submissionId}`);
-  }
-  console.log(`Notarization status: ${status}`);
-
-  if (!submitResult.failed && isAcceptedNotaryStatus(status)) {
-    console.log("Notarization accepted.");
-    await stapleAndValidateDmg(dmgPath);
-    return;
+async function failWithNotaryLog(submitJson, submissionId, status, profile, options = {}) {
+  const { timedOut = false } = options;
+  if (timedOut) {
+    console.error(`Notarization timed out after ${TIMEOUT_MS / 60000} minutes.`);
+    await fetchNotaryHistory(profile);
   }
 
-  const logResult = await fetchNotaryLog(submissionId, credentials);
+  const logResult = await fetchNotaryLog(submissionId, profile);
   if (logResult.failed) {
     console.error(`Unable to fetch complete notarytool log for submission: ${submissionId || "unknown"}`);
     if (logResult.json?.message) {
       console.error(redactSecrets(logResult.json.message));
     }
   }
-  console.error(redactSecrets(formatNotaryFailure(submitJson, logResult.json)));
+
+  console.error(formatNotaryFailure({ ...submitJson, id: submissionId, status }, logResult.json));
   throw new Error(`macOS DMG notarization failed with status: ${status}`);
+}
+
+export async function notarizeDmg(dmgPath) {
+  const profile = notarytoolProfile();
+  const submitResult = await submitDmg(dmgPath, profile);
+  const submitJson = submitResult.json;
+  const submissionId = submissionIdFromResult(submitJson);
+
+  if (!submissionId) {
+    console.error("notarytool submit did not return a submission id.");
+    console.error(JSON.stringify(submitJson, null, 2));
+    throw new Error("macOS DMG notarization failed before polling: missing submission id.");
+  }
+
+  console.log(`Submission ID: ${submissionId}`);
+  const pollResult = await pollNotaryInfo(submissionId, profile);
+
+  if (isAcceptedNotaryStatus(pollResult.status)) {
+    console.log("Notarization accepted.");
+    await stapleAndValidateDmg(dmgPath);
+    return;
+  }
+
+  await failWithNotaryLog(submitJson, submissionId, pollResult.status, profile, {
+    timedOut: pollResult.timedOut
+  });
 }
 
 async function main() {

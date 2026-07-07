@@ -118,29 +118,29 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Check macOS signing and notarization secrets
+      - name: Check macOS signing and notary profile
         shell: bash
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARYTOOL_PROFILE: suwol-notary-profile
         run: |
           set -euo pipefail
           missing=()
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_TEAM_ID APPLE_ID APPLE_APP_SPECIFIC_PASSWORD; do
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_TEAM_ID NOTARYTOOL_PROFILE; do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
             fi
           done
 
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf '::error::Missing macOS signing or notarization secrets: %s\n' "${missing[*]}"
+            printf '::error::Missing macOS signing secret or notary profile setting: %s\n' "${missing[*]}"
             exit 1
           fi
 
-          echo "macOS signing and notarization secret presence check passed."
+          xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE" --output-format json >/dev/null
+          echo "macOS signing secret and notarytool keychain profile check passed."
 
       - name: Install
         run: npm ci
@@ -157,16 +157,12 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: npm run dist -- --mac dmg zip --arm64 --publish never
 
       - name: Notarize macOS DMG
         shell: bash
         env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARYTOOL_PROFILE: suwol-notary-profile
         run: node scripts/notarize-dmg.mjs
 
       - name: Collect release artifact

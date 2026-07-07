@@ -53,22 +53,19 @@ jobs:
             xcrun notarytool --version || true
           } 2>&1 | tee diagnostics/environment.txt
 
-      - name: Check macOS signing and notarization secrets
+      - name: Check macOS signing and notary profile
         shell: bash
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARYTOOL_PROFILE: suwol-notary-profile
         run: |
           set -euo pipefail
           test -n "$CSC_LINK" || (echo "CSC_LINK is missing" && exit 1)
           test -n "$CSC_KEY_PASSWORD" || (echo "CSC_KEY_PASSWORD is missing" && exit 1)
-          test -n "$APPLE_TEAM_ID" || (echo "APPLE_TEAM_ID is missing" && exit 1)
-          test -n "$APPLE_ID" || (echo "APPLE_ID is missing" && exit 1)
-          test -n "$APPLE_APP_SPECIFIC_PASSWORD" || (echo "APPLE_APP_SPECIFIC_PASSWORD is missing" && exit 1)
-          echo "All required macOS signing/notarization secrets are present."
+          test -n "$NOTARYTOOL_PROFILE" || (echo "NOTARYTOOL_PROFILE is missing" && exit 1)
+          xcrun notarytool history --keychain-profile "$NOTARYTOOL_PROFILE" --output-format json > diagnostics/notary-profile-history.json
+          echo "Required macOS signing secrets and notarytool keychain profile are present."
 
       - name: Install dependencies
         run: npm ci
@@ -228,18 +225,10 @@ jobs:
       - name: Notarize DMG
         shell: bash
         env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARYTOOL_PROFILE: suwol-notary-profile
         run: |
           set -euo pipefail
           node scripts/notarize-dmg.mjs "$DMG_PATH" 2>&1 | tee diagnostics/notarize-dmg.txt
-
-      - name: Staple DMG
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcrun stapler staple "$DMG_PATH" 2>&1 | tee diagnostics/staple-dmg.txt || true
 
       - name: Validate DMG stapler
         shell: bash
