@@ -286,4 +286,5 @@ jobs:
             release/*.zip
             release/latest-mac.yml
             diagnostics/*.txt
+            diagnostics/*.json
           if-no-files-found: warn

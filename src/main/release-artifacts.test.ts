@@ -1,5 +1,11 @@
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+
+const execFileAsync = promisify(execFile);
 
 describe("release artifact policy", () => {
   it("builds Linux AppImage and tar.gz artifacts with GitHub publish metadata", async () => {
@@ -56,17 +62,79 @@ describe("release artifact policy", () => {
     const notarizeScript = await readFile("scripts/notarize-dmg.mjs", "utf8");
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
 
-    expect(notarizeScript).toContain("@electron/notarize");
     expect(notarizeScript).toContain("SuwolView-.+-mac-arm64\\.dmg");
     expect(notarizeScript).toContain("process.argv[2]");
+    expect(notarizeScript).toContain("notarytool");
+    expect(notarizeScript).toContain("submit");
+    expect(notarizeScript).toContain("log");
+    expect(notarizeScript).toContain("notary-submit.json");
+    expect(notarizeScript).toContain("notary-log.json");
+    expect(notarizeScript).toContain("--output-format");
+    expect(notarizeScript).toContain("json");
+    expect(notarizeScript).toContain("formatNotaryFailure");
     expect(notarizeScript).toContain("stapler");
+    expect(notarizeScript).toContain("staple");
     expect(notarizeScript).toContain("validate");
     expect(notarizeScript).toContain("APPLE_ID");
     expect(notarizeScript).toContain("APPLE_APP_SPECIFIC_PASSWORD");
     expect(notarizeScript).toContain("APPLE_TEAM_ID");
-    expect(notarizeScript).toContain("tool: \"notarytool\"");
     expect(workflow).toContain("Notarize macOS DMG");
     expect(workflow).toContain("node scripts/notarize-dmg.mjs");
+  });
+
+  it("formats notarytool failures and redacts notarization secrets", async () => {
+    const scriptUrl = pathToFileURL(path.join(process.cwd(), "scripts", "notarize-dmg.mjs")).href;
+    const evalScript = `
+      import {
+        formatNotaryFailure,
+        isAcceptedNotaryStatus,
+        missingRequiredEnv,
+        redactSecrets
+      } from ${JSON.stringify(scriptUrl)};
+
+      const submit = { id: "abc-123", status: "Invalid", message: "Upload failed" };
+      const log = {
+        statusSummary: "Archive contains critical validation errors",
+        issues: [
+          {
+            severity: "error",
+            path: "SuwolView.app/Contents/MacOS/SuwolView",
+            message: "The binary is not signed.",
+            architecture: "arm64",
+            docUrl: "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution"
+          }
+        ]
+      };
+
+      console.log(JSON.stringify({
+        accepted: isAcceptedNotaryStatus("Accepted"),
+        missing: missingRequiredEnv({ APPLE_ID: "dev@example.com", APPLE_TEAM_ID: "TEAMID" }),
+        redacted: redactSecrets("dev@example.com super-secret TEAMID", {
+          APPLE_ID: "dev@example.com",
+          APPLE_APP_SPECIFIC_PASSWORD: "super-secret",
+          APPLE_TEAM_ID: "TEAMID"
+        }),
+        summary: formatNotaryFailure(submit, log)
+      }));
+    `;
+
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", evalScript], {
+      cwd: process.cwd()
+    });
+    const parsed = JSON.parse(stdout);
+
+    expect(parsed.accepted).toBe(true);
+    expect(parsed.missing).toEqual(["APPLE_APP_SPECIFIC_PASSWORD"]);
+    expect(parsed.redacted).toBe("*** *** ***");
+    expect(parsed.summary).toContain("Notarization failed.");
+    expect(parsed.summary).toContain("Submission ID: abc-123");
+    expect(parsed.summary).toContain("Status: Invalid");
+    expect(parsed.summary).toContain("Archive contains critical validation errors");
+    expect(parsed.summary).toContain("severity: error");
+    expect(parsed.summary).toContain("SuwolView.app/Contents/MacOS/SuwolView");
+    expect(parsed.summary).toContain("The binary is not signed.");
+    expect(parsed.summary).toContain("architecture: arm64");
+    expect(parsed.summary).toContain("docUrl: https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution");
   });
 
   it("resigns macOS app internals with Developer ID runtime options before DMG notarization", async () => {
@@ -111,6 +179,7 @@ describe("release artifact policy", () => {
     expect(workflow).toContain("npm run dist -- --mac dmg zip --arm64 --publish never");
     expect(workflow).toContain("node scripts/notarize-dmg.mjs \"$DMG_PATH\"");
     expect(workflow).toContain("xcrun stapler validate \"$DMG_PATH\"");
+    expect(workflow).toContain("diagnostics/*.json");
     expect(workflow).toContain("macos-build-diagnostics-0.2.4");
     expect(workflow).not.toContain("gh release");
     expect(workflow).not.toContain("Create GitHub Release");
