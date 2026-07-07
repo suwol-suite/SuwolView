@@ -122,18 +122,36 @@ jobs:
       - name: Verify app codesign before manual resign
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           {
-            codesign --verify --deep --verbose=4 "$APP_PATH" || true
+            set +e
+            codesign --verify --deep --verbose=4 "$APP_PATH"
+            APP_VERIFY=$?
             codesign -dv --verbose=4 "$APP_PATH" || true
-            find "$APP_PATH" \( -name "*.node" -o -name "*.dylib" \) -type f -print0 | while IFS= read -r -d '' f; do
+
+            NATIVE_VERIFY=0
+            while IFS= read -r -d '' f; do
               echo "Checking native binary: $f"
-              codesign --verify --verbose=4 "$f" || true
+              codesign --verify --verbose=4 "$f"
+              STATUS=$?
               codesign -dv --verbose=4 "$f" || true
-            done
+              if [ "$STATUS" -ne 0 ]; then
+                NATIVE_VERIFY=1
+              fi
+            done < <(find "$APP_PATH" \( -name "*.node" -o -name "*.dylib" \) -type f -print0)
+
+            set -e
+            if [ "$APP_VERIFY" -eq 0 ] && [ "$NATIVE_VERIFY" -eq 0 ]; then
+              echo "NEED_RESIGN=false" >> "$GITHUB_ENV"
+              echo "Existing app signature is valid. Manual resign will be skipped."
+            else
+              echo "NEED_RESIGN=true" >> "$GITHUB_ENV"
+              echo "Existing app signature verification failed. Manual resign will run."
+            fi
           } 2>&1 | tee diagnostics/app-codesign-before-resign.txt
 
       - name: Run explicit app resign script if present
+        if: env.NEED_RESIGN == 'true'
         shell: bash
         run: |
           set -euo pipefail

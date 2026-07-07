@@ -78,6 +78,10 @@ describe("release artifact policy", () => {
     expect(resignScript).toContain("appPath");
     expect(resignScript).toContain("process.argv[2]");
     expect(resignScript).toContain("process.env.CI");
+    expect(resignScript).toContain("Existing signature is valid; skipping resign");
+    expect(resignScript).toContain("verifySignature");
+    expect(resignScript).toContain("signPathIfNeeded");
+    expect(resignScript).toContain("skipping final app resign");
     expect(resignScript).toContain("Contents\", \"Frameworks");
     expect(resignScript).toContain("app.asar.unpacked");
     expect(resignScript).toContain(".node");
@@ -99,6 +103,10 @@ describe("release artifact policy", () => {
     expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64]");
     expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(workflow).toContain("npx electron-builder --mac dir --arm64 --publish never");
+    expect(workflow).toContain("NEED_RESIGN=false");
+    expect(workflow).toContain("NEED_RESIGN=true");
+    expect(workflow).toContain("Existing app signature is valid. Manual resign will be skipped.");
+    expect(workflow).toContain("if: env.NEED_RESIGN == 'true'");
     expect(workflow).toContain("node scripts/resign-mac-app.mjs \"$APP_PATH\"");
     expect(workflow).toContain("npm run dist -- --mac dmg zip --arm64 --publish never");
     expect(workflow).toContain("node scripts/notarize-dmg.mjs \"$DMG_PATH\"");

@@ -66,6 +66,48 @@ async function runCommand(command, args, label) {
   }
 }
 
+function printCommandOutput(result) {
+  const output = redact([result.stdout, result.stderr].filter(Boolean).join("\n").trim());
+  if (output) {
+    console.log(output);
+  }
+}
+
+async function verifySignature(targetPath, label, options = {}) {
+  const { deep = false } = options;
+  const args = ["--verify"];
+  if (deep) {
+    args.push("--deep");
+  }
+  args.push("--verbose=4", targetPath);
+
+  try {
+    const result = await execFileAsync("codesign", args, {
+      cwd: root,
+      timeout: commandTimeoutMs,
+      maxBuffer: 10 * 1024 * 1024
+    });
+    printCommandOutput(result);
+    return true;
+  } catch (error) {
+    const output = redact([error?.stdout, error?.stderr].filter(Boolean).join("\n").trim());
+    console.log(`${label} signature verification failed: ${relativePath(targetPath)}`);
+    if (output) {
+      console.log(output);
+    }
+    return false;
+  }
+}
+
+async function logSignatureDetails(targetPath, label) {
+  try {
+    const result = await runCommand("codesign", ["-dv", "--verbose=4", targetPath], `inspect ${label} ${relativePath(targetPath)}`);
+    printCommandOutput(result);
+  } catch (error) {
+    console.log(redact(error instanceof Error ? error.message : String(error)));
+  }
+}
+
 async function findDirectories(directoryPath, predicate, depth = 0, maxDepth = 8) {
   if (depth > maxDepth || !(await isDirectory(directoryPath))) return [];
   const entries = await readdir(directoryPath, { withFileTypes: true });
@@ -225,9 +267,24 @@ async function signPath(identity, targetPath, label, entitlementsPath) {
   await runCommand("codesign", args, label);
 }
 
+async function signPathIfNeeded(identity, targetPath, label, options = {}) {
+  const { entitlementsPath, deep = false } = options;
+  const valid = await verifySignature(targetPath, label, { deep });
+  await logSignatureDetails(targetPath, label);
+  if (valid) {
+    console.log(`Existing signature is valid; skipping resign: ${relativePath(targetPath)}`);
+    return false;
+  }
+
+  await signPath(identity, targetPath, label, entitlementsPath);
+  await logSignatureDetails(targetPath, label);
+  console.log(`Signed ${relativePath(targetPath)}`);
+  return true;
+}
+
 async function verifyAppBundle(appBundle) {
   await runCommand("codesign", ["--verify", "--deep", "--verbose=4", appBundle], `verify app bundle ${relativePath(appBundle)}`);
-  await runCommand("codesign", ["-dv", "--verbose=4", appBundle], `inspect app signature ${relativePath(appBundle)}`);
+  await logSignatureDetails(appBundle, "app bundle");
 }
 
 export default async function resignMacApp(context = {}) {
@@ -258,35 +315,47 @@ export default async function resignMacApp(context = {}) {
   const identity = await findDeveloperIdApplicationIdentity();
   const machOFiles = await collectMachOTargets(appBundle);
   const { nestedApps, frameworks } = await collectBundleTargets(appBundle);
+  const appSignatureValidBefore = await verifySignature(appBundle, "app bundle", { deep: true });
+  await logSignatureDetails(appBundle, "app bundle");
+  let changed = false;
 
   for (const filePath of machOFiles) {
-    await signPath(identity, filePath, `sign Mach-O ${relativePath(filePath)}`);
+    changed = (await signPathIfNeeded(identity, filePath, `sign Mach-O ${relativePath(filePath)}`)) || changed;
   }
 
   for (const framework of frameworks) {
-    await signPath(identity, framework, `sign framework ${relativePath(framework)}`);
+    changed = (await signPathIfNeeded(identity, framework, `sign framework ${relativePath(framework)}`)) || changed;
   }
 
   for (const nestedApp of nestedApps) {
-    await signPath(identity, nestedApp, `sign nested app ${relativePath(nestedApp)}`, inheritEntitlements);
+    changed =
+      (await signPathIfNeeded(identity, nestedApp, `sign nested app ${relativePath(nestedApp)}`, {
+        entitlementsPath: inheritEntitlements,
+        deep: true
+      })) || changed;
   }
 
-  await runCommand(
-    "codesign",
-    [
-      "--force",
-      "--deep",
-      "--timestamp",
-      "--options",
-      "runtime",
-      "--entitlements",
-      appEntitlements,
-      "--sign",
-      identity,
-      appBundle
-    ],
-    `sign app bundle ${relativePath(appBundle)}`
-  );
+  if (changed || !appSignatureValidBefore) {
+    await runCommand(
+      "codesign",
+      [
+        "--force",
+        "--deep",
+        "--timestamp",
+        "--options",
+        "runtime",
+        "--entitlements",
+        appEntitlements,
+        "--sign",
+        identity,
+        appBundle
+      ],
+      `sign app bundle ${relativePath(appBundle)}`
+    );
+    console.log(`Signed app bundle ${relativePath(appBundle)}`);
+  } else {
+    console.log(`App bundle signature is valid and no native signatures changed; skipping final app resign: ${relativePath(appBundle)}`);
+  }
 
   await verifyAppBundle(appBundle);
   console.log(`macOS app resigning completed: ${relativePath(appBundle)}`);
