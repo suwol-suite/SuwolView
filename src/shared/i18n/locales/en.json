@@ -81,17 +81,30 @@
     "height": "Height",
     "color": "Color",
     "pages": "Pages",
+    "index": "Index",
     "readingMetadata": "Reading metadata",
     "exif": "EXIF",
-    "aiMetadata": "AI metadata"
+    "aiMetadata": "AI metadata",
+    "rawMetadata": "Raw metadata",
+    "truncated": "Some metadata was truncated."
   },
   "cache": {
     "settings": "Cache settings"
   },
   "settings": {
+    "preferences": "Preferences",
+    "preferencesNote": "Changes are saved and applied immediately.",
+    "closePreferences": "Close preferences",
+    "general": "General",
     "language": "Language",
     "systemDefault": "System default",
     "theme": "Theme",
+    "darkTheme": "Dark",
+    "lightTheme": "Light",
+    "startupBehavior": "Startup behavior",
+    "startupBehaviorDefault": "Open launch files or show an empty viewer.",
+    "defaultUiPolicy": "Default UI display",
+    "defaultUiPolicyImmersive": "Use an immersive viewer with panels and chrome hidden until needed.",
     "version": "Version {{version}}",
     "safeModeActive": "Safe mode is active.",
     "fileAssociations": "File associations",
@@ -104,7 +117,11 @@
     "installerAssociationNote": "Use the Windows installer or choose SuwolView in Windows Default Apps.",
     "viewLayout": "View layout",
     "viewer": "Viewer",
+    "rendering": "Rendering",
+    "about": "About",
+    "pinTopBar": "Pin top toolbar",
     "autoHideTopBar": "Auto-hide top toolbar",
+    "moreViewerControls": "More viewer controls",
     "bottomBarFollowsChrome": "The bottom status bar appears with the toolbar or side panels.",
     "alwaysShowTopBar": "Always show top toolbar",
     "alwaysShowBottomBar": "Always show bottom status bar",
@@ -142,7 +159,11 @@
     "macSignedUpdateNote": "macOS signed builds support in-app update checks.",
     "appImageUpdateNote": "Linux AppImage builds support in-app update checks.",
     "portableUpdateNote": "Portable archives may require manual updates.",
-    "safeModeUpdateNote": "Update checks are disabled in Safe Mode."
+    "safeModeUpdateNote": "Update checks are disabled in Safe Mode.",
+    "appName": "App",
+    "license": "License",
+    "repository": "Repository",
+    "thirdPartyLicenses": "Third-party licenses"
   },
   "updates": {
     "status": {

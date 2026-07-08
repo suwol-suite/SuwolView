@@ -11,18 +11,21 @@ import {
   Info,
   Maximize2,
   Minimize2,
-  Moon,
+  MoreHorizontal,
   PanelLeft,
   PanelRight,
+  Pin,
+  PinOff,
   Power,
   RefreshCw,
   RotateCcw,
   RotateCw,
   Rows3,
   Scan,
+  Settings as SettingsIcon,
   ShieldCheck,
-  Sun,
   Trash2,
+  X,
   ZoomIn,
   ZoomOut
 } from "lucide-react";
@@ -77,6 +80,7 @@ interface Point {
 }
 
 type ResizePanelSide = "left" | "right";
+type PreferencesTab = "general" | "viewer" | "rendering" | "updates" | "fileAssociations" | "maintenance" | "about";
 
 interface PanelResizeState {
   side: ResizePanelSide;
@@ -125,6 +129,16 @@ const filterPresetLabelKeys: Record<ImageFilterPreset, string> = {
   sharp: "viewer.filterSharp"
 };
 
+const preferenceTabs: readonly { id: PreferencesTab; labelKey: string }[] = [
+  { id: "general", labelKey: "settings.general" },
+  { id: "viewer", labelKey: "settings.viewer" },
+  { id: "rendering", labelKey: "settings.rendering" },
+  { id: "updates", labelKey: "settings.updates" },
+  { id: "fileAssociations", labelKey: "settings.fileAssociations" },
+  { id: "maintenance", labelKey: "settings.maintenance" },
+  { id: "about", labelKey: "settings.about" }
+];
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -171,6 +185,21 @@ function clampPanelWidth(side: ResizePanelSide, width: number): number {
 
 function chromeModeForAutoHide(autoHide: boolean): ChromeBarMode {
   return autoHide ? "auto" : "always";
+}
+
+function isAiMetadataKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[\s_-]+/g, "");
+  return [
+    "prompt",
+    "negativeprompt",
+    "generationdata",
+    "generationsettings",
+    "parameters",
+    "workflow",
+    "workflowjson",
+    "comfyworkflow",
+    "a1111"
+  ].some((token) => normalized.includes(token));
 }
 
 function isEditableShortcutTarget(target: EventTarget | null): boolean {
@@ -241,6 +270,7 @@ export function App(): React.ReactElement {
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
 
   const items = library?.items ?? [];
   const currentItem = items[currentIndex];
@@ -423,13 +453,17 @@ export function App(): React.ReactElement {
       });
   }, [applyLanguage, t]);
 
-  const toggleTheme = useCallback(() => {
-    const nextTheme: ThemeMode = theme === "dark" ? "light" : "dark";
+  const setThemeMode = useCallback((nextTheme: ThemeMode) => {
     setTheme(nextTheme);
-    void window.suwol.setTheme(nextTheme).then((nextPreferences) => {
-      setRecent(nextPreferences.recent);
-    });
-  }, [theme]);
+    void window.suwol
+      .setTheme(nextTheme)
+      .then((nextPreferences) => {
+        setRecent(nextPreferences.recent);
+      })
+      .catch((themeError) => {
+        setError(translatedErrorMessage(themeError, t));
+      });
+  }, [t]);
 
   const setTopChromeAutoVisible = useCallback((visible: boolean) => {
     setTopBarAutoVisible((current) => (current === visible ? current : visible));
@@ -757,6 +791,14 @@ export function App(): React.ReactElement {
       const editableTarget = isEditableShortcutTarget(event.target);
       const interactiveTarget = isInteractiveShortcutTarget(event.target);
 
+      if (preferencesOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setPreferencesOpen(false);
+        }
+        return;
+      }
+
       if (modifier && key === "o" && event.shiftKey) {
         event.preventDefault();
         openFolder();
@@ -802,7 +844,18 @@ export function App(): React.ReactElement {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [exitFullscreen, fullscreen, nextImage, openFile, openFolder, previousImage, setViewMode, toggleFullscreen, zoomBy]);
+  }, [
+    exitFullscreen,
+    fullscreen,
+    nextImage,
+    openFile,
+    openFolder,
+    preferencesOpen,
+    previousImage,
+    setViewMode,
+    toggleFullscreen,
+    zoomBy
+  ]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!currentItem || viewMode === "webtoon") return;
@@ -945,6 +998,10 @@ export function App(): React.ReactElement {
     setInterpolationFilter((value) => (value === "nearest" ? "bilinear" : "nearest"));
   }, []);
 
+  const toggleTopBarPin = useCallback(() => {
+    setTopBarMode((value) => (value === "always" ? "auto" : "always"));
+  }, []);
+
   const applyUpdateResult = useCallback((result: Awaited<ReturnType<typeof window.suwol.checkForUpdates>>) => {
     if (result.ok) {
       setUpdateStatus(result.data);
@@ -1055,18 +1112,18 @@ export function App(): React.ReactElement {
         onFocusCapture={handleTopChromeFocus}
         onBlurCapture={handleTopChromeBlur}
       >
-        <div className="toolbar-group">
+        <div className="toolbar-group toolbar-primary">
           <button className="command-button" onClick={openFile} disabled={busy} title={t("toolbar.openFile")}>
             <FileImage size={17} />
-            <span>{t("toolbar.openFile")}</span>
+            <span className="button-label optional-label">{t("toolbar.openFile")}</span>
           </button>
           <button className="command-button" onClick={openFolder} disabled={busy} title={t("toolbar.openFolder")}>
             <FolderOpen size={17} />
-            <span>{t("toolbar.openFolder")}</span>
+            <span className="button-label optional-label">{t("toolbar.openFolder")}</span>
           </button>
           <select
             aria-label={t("viewer.viewMode")}
-            className="select-control"
+            className="select-control view-mode-select"
             value={viewMode}
             onChange={(event) => setViewMode(event.target.value as ViewMode)}
           >
@@ -1078,7 +1135,7 @@ export function App(): React.ReactElement {
           </select>
           <select
             aria-label={t("toolbar.recent")}
-            className="select-control recent-select"
+            className="select-control recent-select optional-toolbar-control"
             value=""
             onChange={(event) => openRecent(event.target.value)}
             title={t("toolbar.recent")}
@@ -1092,21 +1149,7 @@ export function App(): React.ReactElement {
           </select>
         </div>
 
-        <div className="toolbar-group">
-          <select
-            aria-label={t("settings.language")}
-            className="select-control language-select"
-            value={language}
-            onChange={(event) => changeLanguage(event.target.value as AppLanguageSetting)}
-            title={t("settings.language")}
-          >
-            <option value="system">{t("settings.systemDefault")}</option>
-            {builtInLanguages.map((code) => (
-              <option key={code} value={code}>
-                {t(languageOptions.find((option) => option.code === code)?.labelKey ?? `languages.${code}`)}
-              </option>
-            ))}
-          </select>
+        <div className="toolbar-group toolbar-secondary">
           <button className="icon-button" onClick={() => zoomBy(1 / 1.15)} disabled={!currentItem} title={t("toolbar.zoomOut")}>
             <ZoomOut size={18} />
           </button>
@@ -1131,6 +1174,32 @@ export function App(): React.ReactElement {
           >
             <Scan size={18} />
           </button>
+          <select
+            aria-label={t("viewer.interpolationFilter")}
+            className="select-control compact-select wide-toolbar-control"
+            value={interpolationFilter}
+            onChange={(event) => setInterpolationFilter(event.currentTarget.value as InterpolationFilter)}
+            title={t("viewer.interpolationFilter")}
+          >
+            {interpolationOptions.map((value) => (
+              <option key={value} value={value}>
+                {t(interpolationLabelKeys[value])}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={t("viewer.filterPreset")}
+            className="select-control compact-select wide-toolbar-control"
+            value={filterPreset}
+            onChange={(event) => setFilterPreset(event.currentTarget.value as ImageFilterPreset)}
+            title={t("viewer.filterPreset")}
+          >
+            {filterPresetOptions.map((value) => (
+              <option key={value} value={value}>
+                {t(filterPresetLabelKeys[value])}
+              </option>
+            ))}
+          </select>
           {showZoomPercent && <span className="zoom-chip" title={t("viewer.zoomPercent", { percent: zoomPercent })}>{zoomPercent}%</span>}
           <button
             aria-pressed={fullscreen}
@@ -1140,10 +1209,18 @@ export function App(): React.ReactElement {
           >
             {fullscreen ? <Minimize2 size={18} /> : <Fullscreen size={18} />}
           </button>
-          <button className="icon-button" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!currentItem} title={t("toolbar.rotate")}>
+          <button
+            aria-pressed={topBarMode === "always"}
+            className={`icon-button ${topBarMode === "always" ? "active" : ""}`}
+            onClick={toggleTopBarPin}
+            title={t("settings.pinTopBar")}
+          >
+            {topBarMode === "always" ? <Pin size={18} /> : <PinOff size={18} />}
+          </button>
+          <button className="icon-button wide-toolbar-control" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!currentItem} title={t("toolbar.rotate")}>
             <RotateCw size={18} />
           </button>
-          <button className="icon-button" onClick={() => setFlipped((value) => !value)} disabled={!currentItem} title={t("toolbar.flipHorizontal")}>
+          <button className="icon-button wide-toolbar-control" onClick={() => setFlipped((value) => !value)} disabled={!currentItem} title={t("toolbar.flipHorizontal")}>
             <FlipHorizontal size={18} />
           </button>
           <button className="icon-button" onClick={() => setLeftPanelVisible((value) => !value)} title={t("toolbar.thumbnails")}>
@@ -1152,15 +1229,62 @@ export function App(): React.ReactElement {
           <button className="icon-button" onClick={() => setRightPanelVisible((value) => !value)} title={t("toolbar.info")}>
             <PanelRight size={18} />
           </button>
-          <button className="icon-button" onClick={toggleTheme} title={t("toolbar.theme")}>
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          <details className="toolbar-more">
+            <summary className="icon-button" aria-label={t("settings.moreViewerControls")} title={t("settings.moreViewerControls")}>
+              <MoreHorizontal size={18} />
+            </summary>
+            <div className="toolbar-more-menu">
+              <button className="panel-command-button" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!currentItem}>
+                <RotateCw size={15} />
+                <span>{t("toolbar.rotate")}</span>
+              </button>
+              <button className="panel-command-button" onClick={() => setFlipped((value) => !value)} disabled={!currentItem}>
+                <FlipHorizontal size={15} />
+                <span>{t("toolbar.flipHorizontal")}</span>
+              </button>
+              <label className="settings-field compact-more-field">
+                <span>{t("viewer.interpolationFilter")}</span>
+                <select
+                  className="select-control settings-select"
+                  value={interpolationFilter}
+                  onChange={(event) => setInterpolationFilter(event.currentTarget.value as InterpolationFilter)}
+                >
+                  {interpolationOptions.map((value) => (
+                    <option key={value} value={value}>
+                      {t(interpolationLabelKeys[value])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="settings-field compact-more-field">
+                <span>{t("viewer.filterPreset")}</span>
+                <select
+                  className="select-control settings-select"
+                  value={filterPreset}
+                  onChange={(event) => setFilterPreset(event.currentTarget.value as ImageFilterPreset)}
+                >
+                  {filterPresetOptions.map((value) => (
+                    <option key={value} value={value}>
+                      {t(filterPresetLabelKeys[value])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="settings-check">
+                <input type="checkbox" checked={hdrEnabled} onChange={(event) => setHdrEnabled(event.currentTarget.checked)} />
+                <span>{t("viewer.hdrViewing")}</span>
+              </label>
+            </div>
+          </details>
+          <button className="icon-button" onClick={() => setPreferencesOpen(true)} title={t("settings.preferences")}>
+            <SettingsIcon size={18} />
           </button>
         </div>
       </header>
 
       <main className={`workspace ${isResizingPanel ? "resizing-panel" : ""}`} style={workspaceStyle}>
         {leftPanelVisible && (
-          <aside className="thumbnail-panel">
+          <aside className="thumbnail-panel side-panel-scroll">
             {items.map((item) => (
               <button
                 className={`thumbnail-item ${item.index === currentIndex ? "active" : ""}`}
@@ -1278,7 +1402,7 @@ export function App(): React.ReactElement {
         )}
 
         {rightPanelVisible && (
-          <aside className="info-panel">
+          <aside className="info-panel side-panel-scroll">
             <div className="panel-title">
               <Info size={17} />
               <span>{t("metadata.info")}</span>
@@ -1294,42 +1418,50 @@ export function App(): React.ReactElement {
             ) : (
               <div className="muted-line">{t("common.noFile")}</div>
             )}
-            <SettingsPanel
-              leftPanelVisible={leftPanelVisible}
-              rightPanelVisible={rightPanelVisible}
-              cacheStats={cacheStats}
-              checkForUpdatesOnStartup={checkForUpdatesOnStartup}
-              runtimeInfo={runtimeInfo}
-              topBarMode={topBarMode}
-              updateStatus={updateStatus}
-              viewerPreferences={viewerPreferences}
-              onCleanupThumbnailCache={cleanupThumbnailCache}
-              onClearThumbnailCache={clearThumbnailCache}
-              onCheckForUpdates={checkForUpdates}
-              onCopyExecutablePath={copyExecutablePath}
-              onDownloadUpdate={downloadUpdate}
-              onInstallUpdate={installUpdate}
-              onOpenLogsFolder={openLogsFolder}
-              onOpenReleases={openReleases}
-              onOpenWindowsDefaultApps={openWindowsDefaultApps}
-              onResetPanelSizes={resetPanelSizes}
-              onResetSettings={resetSettings}
-              onRestartInSafeMode={restartInSafeMode}
-              onSetUpdateStartupCheck={setUpdateStartupCheck}
-              onSetTopBarMode={setTopBarMode}
-              onSetFilterPreset={setFilterPreset}
-              onSetHdrEnabled={setHdrEnabled}
-              onSetInterpolationFilter={setInterpolationFilter}
-              onSetResetZoomOnImageChange={setResetZoomOnImageChange}
-              onSetShowZoomPercent={setShowZoomPercent}
-              onSetUpscaleSmallImages={setUpscaleSmallImages}
-              onSetViewMode={setViewMode}
-              onToggleLeftPanel={() => setLeftPanelVisible((value) => !value)}
-              onToggleRightPanel={() => setRightPanelVisible((value) => !value)}
-            />
           </aside>
         )}
       </main>
+
+      {preferencesOpen && (
+        <PreferencesModal
+          leftPanelVisible={leftPanelVisible}
+          rightPanelVisible={rightPanelVisible}
+          cacheStats={cacheStats}
+          checkForUpdatesOnStartup={checkForUpdatesOnStartup}
+          language={language}
+          runtimeInfo={runtimeInfo}
+          theme={theme}
+          topBarMode={topBarMode}
+          updateStatus={updateStatus}
+          viewerPreferences={viewerPreferences}
+          onChangeLanguage={changeLanguage}
+          onCleanupThumbnailCache={cleanupThumbnailCache}
+          onClearThumbnailCache={clearThumbnailCache}
+          onCheckForUpdates={checkForUpdates}
+          onClose={() => setPreferencesOpen(false)}
+          onCopyExecutablePath={copyExecutablePath}
+          onDownloadUpdate={downloadUpdate}
+          onInstallUpdate={installUpdate}
+          onOpenLogsFolder={openLogsFolder}
+          onOpenReleases={openReleases}
+          onOpenWindowsDefaultApps={openWindowsDefaultApps}
+          onResetPanelSizes={resetPanelSizes}
+          onResetSettings={resetSettings}
+          onRestartInSafeMode={restartInSafeMode}
+          onSetFilterPreset={setFilterPreset}
+          onSetHdrEnabled={setHdrEnabled}
+          onSetInterpolationFilter={setInterpolationFilter}
+          onSetResetZoomOnImageChange={setResetZoomOnImageChange}
+          onSetShowZoomPercent={setShowZoomPercent}
+          onSetTheme={setThemeMode}
+          onSetTopBarMode={setTopBarMode}
+          onSetUpdateStartupCheck={setUpdateStartupCheck}
+          onSetUpscaleSmallImages={setUpscaleSmallImages}
+          onSetViewMode={setViewMode}
+          onToggleLeftPanel={() => setLeftPanelVisible((value) => !value)}
+          onToggleRightPanel={() => setRightPanelVisible((value) => !value)}
+        />
+      )}
 
       <footer
         className={`status-bar chrome-bar chrome-bottom auto ${bottomBarVisible ? "visible" : ""}`}
@@ -1346,18 +1478,22 @@ export function App(): React.ReactElement {
   );
 }
 
-function SettingsPanel({
+function PreferencesModal({
   leftPanelVisible,
   rightPanelVisible,
   cacheStats,
   checkForUpdatesOnStartup,
+  language,
   runtimeInfo,
+  theme,
   topBarMode,
   updateStatus,
   viewerPreferences,
+  onChangeLanguage,
   onCleanupThumbnailCache,
   onClearThumbnailCache,
   onCheckForUpdates,
+  onClose,
   onCopyExecutablePath,
   onDownloadUpdate,
   onInstallUpdate,
@@ -1367,13 +1503,14 @@ function SettingsPanel({
   onResetPanelSizes,
   onResetSettings,
   onRestartInSafeMode,
-  onSetUpdateStartupCheck,
-  onSetTopBarMode,
   onSetFilterPreset,
   onSetHdrEnabled,
   onSetInterpolationFilter,
   onSetResetZoomOnImageChange,
   onSetShowZoomPercent,
+  onSetTheme,
+  onSetTopBarMode,
+  onSetUpdateStartupCheck,
   onSetUpscaleSmallImages,
   onSetViewMode,
   onToggleLeftPanel,
@@ -1383,13 +1520,17 @@ function SettingsPanel({
   rightPanelVisible: boolean;
   cacheStats?: CacheStats;
   checkForUpdatesOnStartup: boolean;
+  language: AppLanguageSetting;
   runtimeInfo?: RuntimeInfo;
+  theme: ThemeMode;
   topBarMode: ChromeBarMode;
   updateStatus?: UpdateState;
   viewerPreferences: ViewerPreferences;
+  onChangeLanguage: (language: AppLanguageSetting) => void;
   onCleanupThumbnailCache: () => void;
   onClearThumbnailCache: () => void;
   onCheckForUpdates: () => void;
+  onClose: () => void;
   onCopyExecutablePath: () => void;
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
@@ -1399,209 +1540,324 @@ function SettingsPanel({
   onResetPanelSizes: () => void;
   onResetSettings: () => void;
   onRestartInSafeMode: () => void;
-  onSetUpdateStartupCheck: (enabled: boolean) => void;
-  onSetTopBarMode: (mode: ChromeBarMode) => void;
   onSetFilterPreset: (preset: ImageFilterPreset) => void;
   onSetHdrEnabled: (enabled: boolean) => void;
   onSetInterpolationFilter: (filter: InterpolationFilter) => void;
   onSetResetZoomOnImageChange: (enabled: boolean) => void;
   onSetShowZoomPercent: (enabled: boolean) => void;
+  onSetTheme: (theme: ThemeMode) => void;
+  onSetTopBarMode: (mode: ChromeBarMode) => void;
+  onSetUpdateStartupCheck: (enabled: boolean) => void;
   onSetUpscaleSmallImages: (enabled: boolean) => void;
   onSetViewMode: (mode: ViewMode) => void;
   onToggleLeftPanel: () => void;
   onToggleRightPanel: () => void;
 }): React.ReactElement {
   const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState<PreferencesTab>("general");
   const updateStatusLabel = t(`updates.status.${updateStatus?.status ?? "idle"}`);
   const updateError = updateStatus?.error ? translatedErrorMessage(updateStatus.error, t) : undefined;
   const canCheckForUpdates = updateStatus?.supported === true && updateStatus.status !== "checking";
   const canDownloadUpdate = updateStatus?.supported === true && updateStatus.updateAvailable && updateStatus.status !== "downloading";
   const canInstallUpdate = updateStatus?.supported === true && updateStatus.downloaded;
+  const showDeveloperUpdateNotes = runtimeInfo?.isPackaged === false;
 
   return (
-    <div className="settings-content">
-      <div className="subheading">{t("settings.fileAssociations")}</div>
-      <p className="settings-note">{t("settings.version", { version: runtimeInfo?.version ?? "" })}</p>
-      {runtimeInfo?.safeMode && <p className="settings-note">{t("settings.safeModeActive")}</p>}
-      <p className="settings-note">{t("settings.launchArgumentNote")}</p>
-      <p className="settings-note">{t("settings.portableAssociationNote")}</p>
-      <p className="settings-note">{t("settings.installerAssociationNote")}</p>
-      <div className="settings-actions">
-        <button className="panel-command-button" onClick={onOpenWindowsDefaultApps}>
-          <ExternalLink size={15} />
-          <span>{t("settings.openWindowsDefaultApps")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onOpenReleases}>
-          <ExternalLink size={15} />
-          <span>{t("settings.openReleases")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onCopyExecutablePath}>
-          <Copy size={15} />
-          <span>{t("settings.copyExecutablePath")}</span>
-        </button>
-      </div>
+    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section
+        aria-labelledby="preferences-title"
+        aria-modal="true"
+        className="preferences-modal"
+        role="dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="preferences-header">
+          <div>
+            <div className="panel-title" id="preferences-title">
+              <SettingsIcon size={17} />
+              <span>{t("settings.preferences")}</span>
+            </div>
+            <p className="settings-note">{t("settings.preferencesNote")}</p>
+          </div>
+          <button className="icon-button preferences-close" onClick={onClose} title={t("settings.closePreferences")}>
+            <X size={18} />
+          </button>
+        </header>
 
-      <div className="subheading">{t("settings.updates")}</div>
-      <InfoRow label={t("settings.currentVersion")} value={runtimeInfo?.version ?? t("common.unknown")} />
-      <InfoRow label={t("settings.updateStatus")} value={updateStatusLabel} />
-      {updateStatus?.latestVersion && <InfoRow label={t("settings.latestVersion")} value={updateStatus.latestVersion} />}
-      {updateError && <p className="settings-note">{updateError}</p>}
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={checkForUpdatesOnStartup}
-          onChange={(event) => onSetUpdateStartupCheck(event.currentTarget.checked)}
-        />
-        <span>{t("settings.checkForUpdatesOnStartup")}</span>
-      </label>
-      <p className="settings-note">{t("settings.macSignedUpdateNote")}</p>
-      <p className="settings-note">{t("settings.appImageUpdateNote")}</p>
-      <p className="settings-note">{t("settings.portableUpdateNote")}</p>
-      {runtimeInfo?.safeMode && <p className="settings-note">{t("settings.safeModeUpdateNote")}</p>}
-      <div className="settings-actions">
-        <button className="panel-command-button" onClick={onCheckForUpdates} disabled={!canCheckForUpdates}>
-          <RefreshCw size={15} />
-          <span>{t("settings.checkForUpdates")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onDownloadUpdate} disabled={!canDownloadUpdate}>
-          <Download size={15} />
-          <span>{t("settings.downloadUpdate")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onInstallUpdate} disabled={!canInstallUpdate}>
-          <Power size={15} />
-          <span>{t("settings.installAndRestart")}</span>
-        </button>
-      </div>
+        <div className="preferences-layout">
+          <nav className="preferences-tabs" aria-label={t("settings.preferences")}>
+            {preferenceTabs.map((tab) => (
+              <button
+                key={tab.id}
+                aria-selected={activeTab === tab.id}
+                className={`preferences-tab ${activeTab === tab.id ? "active" : ""}`}
+                onClick={() => setActiveTab(tab.id)}
+                role="tab"
+                type="button"
+              >
+                {t(tab.labelKey)}
+              </button>
+            ))}
+          </nav>
 
-      <div className="subheading">{t("settings.viewLayout")}</div>
-      <p className="settings-note">{t("settings.immersiveDefaultNote")}</p>
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={topBarMode === "auto"}
-          onChange={(event) => onSetTopBarMode(chromeModeForAutoHide(event.currentTarget.checked))}
-        />
-        <span>{t("settings.autoHideTopBar")}</span>
-      </label>
-      <p className="settings-note">{t("settings.bottomBarFollowsChrome")}</p>
-      <label className="settings-check">
-        <input type="checkbox" checked={leftPanelVisible} onChange={onToggleLeftPanel} />
-        <span>{t("settings.showLeftPanelByDefault")}</span>
-      </label>
-      <label className="settings-check">
-        <input type="checkbox" checked={rightPanelVisible} onChange={onToggleRightPanel} />
-        <span>{t("settings.showRightPanelByDefault")}</span>
-      </label>
-      <button className="panel-command-button" onClick={onResetPanelSizes}>
-        <RotateCcw size={15} />
-        <span>{t("settings.resetPanelSizes")}</span>
-      </button>
+          <div className="preferences-body" role="tabpanel">
+            {activeTab === "general" && (
+              <div className="settings-content modal-settings-content">
+                <div className="subheading">{t("settings.general")}</div>
+                <label className="settings-field">
+                  <span>{t("settings.language")}</span>
+                  <select
+                    className="select-control settings-select"
+                    value={language}
+                    onChange={(event) => onChangeLanguage(event.currentTarget.value as AppLanguageSetting)}
+                  >
+                    <option value="system">{t("settings.systemDefault")}</option>
+                    {builtInLanguages.map((code) => (
+                      <option key={code} value={code}>
+                        {t(languageOptions.find((option) => option.code === code)?.labelKey ?? `languages.${code}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-field">
+                  <span>{t("settings.theme")}</span>
+                  <select
+                    className="select-control settings-select"
+                    value={theme}
+                    onChange={(event) => onSetTheme(event.currentTarget.value as ThemeMode)}
+                  >
+                    <option value="dark">{t("settings.darkTheme")}</option>
+                    <option value="light">{t("settings.lightTheme")}</option>
+                  </select>
+                </label>
+                <InfoRow label={t("settings.startupBehavior")} value={t("settings.startupBehaviorDefault")} />
+                <InfoRow label={t("settings.defaultUiPolicy")} value={t("settings.defaultUiPolicyImmersive")} />
+              </div>
+            )}
 
-      <div className="subheading">{t("settings.viewer")}</div>
-      <label className="settings-field">
-        <span>{t("viewer.viewMode")}</span>
-        <select
-          className="select-control settings-select"
-          value={viewerPreferences.viewMode}
-          onChange={(event) => onSetViewMode(event.currentTarget.value as ViewMode)}
-        >
-          {viewModeOptions.map((value) => (
-            <option key={value} value={value}>
-              {t(viewModeLabelKeys[value])}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={viewerPreferences.upscaleSmallImages}
-          onChange={(event) => onSetUpscaleSmallImages(event.currentTarget.checked)}
-        />
-        <span>{t("viewer.upscaleSmallImages")}</span>
-      </label>
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={viewerPreferences.showZoomPercent}
-          onChange={(event) => onSetShowZoomPercent(event.currentTarget.checked)}
-        />
-        <span>{t("viewer.showZoomPercent")}</span>
-      </label>
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={viewerPreferences.resetZoomOnImageChange}
-          onChange={(event) => onSetResetZoomOnImageChange(event.currentTarget.checked)}
-        />
-        <span>{t("viewer.resetZoomOnImageChange")}</span>
-      </label>
-      <label className="settings-check">
-        <input
-          type="checkbox"
-          checked={viewerPreferences.hdrEnabled}
-          onChange={(event) => onSetHdrEnabled(event.currentTarget.checked)}
-        />
-        <span>{t("viewer.hdrViewing")}</span>
-      </label>
-      <p className="settings-note">{t("viewer.hdrViewingNote")}</p>
-      <label className="settings-field">
-        <span>{t("viewer.filterPreset")}</span>
-        <select
-          className="select-control settings-select"
-          value={viewerPreferences.filterPreset}
-          onChange={(event) => onSetFilterPreset(event.currentTarget.value as ImageFilterPreset)}
-        >
-          {filterPresetOptions.map((value) => (
-            <option key={value} value={value}>
-              {t(filterPresetLabelKeys[value])}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="settings-field">
-        <span>{t("viewer.interpolationFilter")}</span>
-        <select
-          className="select-control settings-select"
-          value={viewerPreferences.interpolationFilter}
-          onChange={(event) => onSetInterpolationFilter(event.currentTarget.value as InterpolationFilter)}
-        >
-          {interpolationOptions.map((value) => (
-            <option key={value} value={value}>
-              {t(interpolationLabelKeys[value])}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p className="settings-note">{t("viewer.interpolationFallbackNote")}</p>
+            {activeTab === "viewer" && (
+              <div className="settings-content modal-settings-content">
+                <div className="subheading">{t("settings.viewer")}</div>
+                <label className="settings-check">
+                  <input
+                    type="checkbox"
+                    checked={topBarMode === "auto"}
+                    onChange={(event) => onSetTopBarMode(chromeModeForAutoHide(event.currentTarget.checked))}
+                  />
+                  <span>{t("settings.autoHideTopBar")}</span>
+                </label>
+                <p className="settings-note">{t("settings.bottomBarFollowsChrome")}</p>
+                <label className="settings-check">
+                  <input type="checkbox" checked={leftPanelVisible} onChange={onToggleLeftPanel} />
+                  <span>{t("settings.showLeftPanelByDefault")}</span>
+                </label>
+                <label className="settings-check">
+                  <input type="checkbox" checked={rightPanelVisible} onChange={onToggleRightPanel} />
+                  <span>{t("settings.showRightPanelByDefault")}</span>
+                </label>
+                <button className="panel-command-button" onClick={onResetPanelSizes}>
+                  <RotateCcw size={15} />
+                  <span>{t("settings.resetPanelSizes")}</span>
+                </button>
+                <label className="settings-field">
+                  <span>{t("viewer.viewMode")}</span>
+                  <select
+                    className="select-control settings-select"
+                    value={viewerPreferences.viewMode}
+                    onChange={(event) => onSetViewMode(event.currentTarget.value as ViewMode)}
+                  >
+                    {viewModeOptions.map((value) => (
+                      <option key={value} value={value}>
+                        {t(viewModeLabelKeys[value])}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-check">
+                  <input
+                    type="checkbox"
+                    checked={viewerPreferences.showZoomPercent}
+                    onChange={(event) => onSetShowZoomPercent(event.currentTarget.checked)}
+                  />
+                  <span>{t("viewer.showZoomPercent")}</span>
+                </label>
+                <label className="settings-check">
+                  <input
+                    type="checkbox"
+                    checked={viewerPreferences.resetZoomOnImageChange}
+                    onChange={(event) => onSetResetZoomOnImageChange(event.currentTarget.checked)}
+                  />
+                  <span>{t("viewer.resetZoomOnImageChange")}</span>
+                </label>
+                <label className="settings-check">
+                  <input
+                    type="checkbox"
+                    checked={viewerPreferences.upscaleSmallImages}
+                    onChange={(event) => onSetUpscaleSmallImages(event.currentTarget.checked)}
+                  />
+                  <span>{t("viewer.upscaleSmallImages")}</span>
+                </label>
+              </div>
+            )}
 
-      <div className="subheading">{t("settings.maintenance")}</div>
-      <p className="settings-note">{t("settings.logsPrivacyNote")}</p>
-      <InfoRow label={t("settings.cacheSize")} value={formatBytes(cacheStats?.thumbnailSizeBytes, t("common.unknown"))} />
-      <InfoRow label={t("settings.cacheEntries")} value={String(cacheStats?.thumbnailEntries ?? 0)} />
-      <div className="settings-actions">
-        <button className="panel-command-button" onClick={onOpenLogsFolder}>
-          <FolderCog size={15} />
-          <span>{t("settings.openLogsFolder")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onClearThumbnailCache}>
-          <Trash2 size={15} />
-          <span>{t("settings.clearThumbnailCache")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onCleanupThumbnailCache}>
-          <Trash2 size={15} />
-          <span>{t("settings.cleanOldCache")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onResetSettings}>
-          <RotateCcw size={15} />
-          <span>{t("settings.resetSettings")}</span>
-        </button>
-        <button className="panel-command-button" onClick={onRestartInSafeMode}>
-          <ShieldCheck size={15} />
-          <span>{t("settings.restartInSafeMode")}</span>
-        </button>
-      </div>
-      <p className="settings-note">{t("settings.safeModeNote")}</p>
+            {activeTab === "rendering" && (
+              <div className="settings-content modal-settings-content">
+                <div className="subheading">{t("settings.rendering")}</div>
+                <label className="settings-field">
+                  <span>{t("viewer.interpolationFilter")}</span>
+                  <select
+                    className="select-control settings-select"
+                    value={viewerPreferences.interpolationFilter}
+                    onChange={(event) => onSetInterpolationFilter(event.currentTarget.value as InterpolationFilter)}
+                  >
+                    {interpolationOptions.map((value) => (
+                      <option key={value} value={value}>
+                        {t(interpolationLabelKeys[value])}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-field">
+                  <span>{t("viewer.filterPreset")}</span>
+                  <select
+                    className="select-control settings-select"
+                    value={viewerPreferences.filterPreset}
+                    onChange={(event) => onSetFilterPreset(event.currentTarget.value as ImageFilterPreset)}
+                  >
+                    {filterPresetOptions.map((value) => (
+                      <option key={value} value={value}>
+                        {t(filterPresetLabelKeys[value])}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-check">
+                  <input
+                    type="checkbox"
+                    checked={viewerPreferences.hdrEnabled}
+                    onChange={(event) => onSetHdrEnabled(event.currentTarget.checked)}
+                  />
+                  <span>{t("viewer.hdrViewing")}</span>
+                </label>
+                <p className="settings-note">{t("viewer.hdrViewingNote")}</p>
+                <p className="settings-note">{t("viewer.interpolationFallbackNote")}</p>
+              </div>
+            )}
+
+            {activeTab === "updates" && (
+              <div className="settings-content modal-settings-content">
+                <div className="subheading">{t("settings.updates")}</div>
+                <InfoRow label={t("settings.currentVersion")} value={runtimeInfo?.version ?? t("common.unknown")} />
+                <InfoRow label={t("settings.updateStatus")} value={updateStatusLabel} />
+                {updateStatus?.latestVersion && <InfoRow label={t("settings.latestVersion")} value={updateStatus.latestVersion} />}
+                {updateError && <p className="settings-note">{updateError}</p>}
+                <label className="settings-check">
+                  <input
+                    type="checkbox"
+                    checked={checkForUpdatesOnStartup}
+                    onChange={(event) => onSetUpdateStartupCheck(event.currentTarget.checked)}
+                  />
+                  <span>{t("settings.checkForUpdatesOnStartup")}</span>
+                </label>
+                {showDeveloperUpdateNotes && (
+                  <>
+                    <p className="settings-note">{t("settings.macSignedUpdateNote")}</p>
+                    <p className="settings-note">{t("settings.appImageUpdateNote")}</p>
+                    <p className="settings-note">{t("settings.portableUpdateNote")}</p>
+                  </>
+                )}
+                {runtimeInfo?.safeMode && <p className="settings-note">{t("settings.safeModeUpdateNote")}</p>}
+                <div className="settings-actions">
+                  <button className="panel-command-button" onClick={onCheckForUpdates} disabled={!canCheckForUpdates}>
+                    <RefreshCw size={15} />
+                    <span>{t("settings.checkForUpdates")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onDownloadUpdate} disabled={!canDownloadUpdate}>
+                    <Download size={15} />
+                    <span>{t("settings.downloadUpdate")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onInstallUpdate} disabled={!canInstallUpdate}>
+                    <Power size={15} />
+                    <span>{t("settings.installAndRestart")}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "fileAssociations" && (
+              <div className="settings-content modal-settings-content">
+                <div className="subheading">{t("settings.fileAssociations")}</div>
+                <p className="settings-note">{t("settings.launchArgumentNote")}</p>
+                <p className="settings-note">{t("settings.portableAssociationNote")}</p>
+                <p className="settings-note">{t("settings.installerAssociationNote")}</p>
+                <div className="settings-actions">
+                  <button className="panel-command-button" onClick={onOpenWindowsDefaultApps}>
+                    <ExternalLink size={15} />
+                    <span>{t("settings.openWindowsDefaultApps")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onOpenReleases}>
+                    <ExternalLink size={15} />
+                    <span>{t("settings.openReleases")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onCopyExecutablePath}>
+                    <Copy size={15} />
+                    <span>{t("settings.copyExecutablePath")}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "maintenance" && (
+              <div className="settings-content modal-settings-content">
+                <div className="subheading">{t("settings.maintenance")}</div>
+                <p className="settings-note">{t("settings.logsPrivacyNote")}</p>
+                <InfoRow label={t("settings.cacheSize")} value={formatBytes(cacheStats?.thumbnailSizeBytes, t("common.unknown"))} />
+                <InfoRow label={t("settings.cacheEntries")} value={String(cacheStats?.thumbnailEntries ?? 0)} />
+                <div className="settings-actions">
+                  <button className="panel-command-button" onClick={onOpenLogsFolder}>
+                    <FolderCog size={15} />
+                    <span>{t("settings.openLogsFolder")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onClearThumbnailCache}>
+                    <Trash2 size={15} />
+                    <span>{t("settings.clearThumbnailCache")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onCleanupThumbnailCache}>
+                    <Trash2 size={15} />
+                    <span>{t("settings.cleanOldCache")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onResetSettings}>
+                    <RotateCcw size={15} />
+                    <span>{t("settings.resetSettings")}</span>
+                  </button>
+                  <button className="panel-command-button" onClick={onRestartInSafeMode}>
+                    <ShieldCheck size={15} />
+                    <span>{t("settings.restartInSafeMode")}</span>
+                  </button>
+                </div>
+                <p className="settings-note">{t("settings.safeModeNote")}</p>
+              </div>
+            )}
+
+            {activeTab === "about" && (
+              <div className="settings-content modal-settings-content">
+                <div className="subheading">{t("settings.about")}</div>
+                <InfoRow label={t("settings.appName")} value={t("app.name")} />
+                <InfoRow label={t("settings.currentVersion")} value={runtimeInfo?.version ?? t("common.unknown")} />
+                <InfoRow label={t("settings.license")} value="Apache License 2.0" />
+                <InfoRow label={t("settings.repository")} value="https://github.com/suwol-suite/SuwolView" />
+                <InfoRow label={t("settings.thirdPartyLicenses")} value="THIRD_PARTY_LICENSES.md, NOTICE" />
+                <div className="settings-actions">
+                  <button className="panel-command-button" onClick={onOpenReleases}>
+                    <ExternalLink size={15} />
+                    <span>{t("settings.openReleases")}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1622,7 +1878,10 @@ function MetadataPanel({
   const { t } = useTranslation();
   const basic = metadata?.basic;
   const exifEntries = Object.entries(metadata?.exif ?? {}).slice(0, 80);
+  const aiEntries = exifEntries.filter(([key]) => isAiMetadataKey(key));
+  const standardExifEntries = exifEntries.filter(([key]) => !isAiMetadataKey(key));
   const unknownLabel = t("common.unknown");
+  const rawMetadata = metadata ? JSON.stringify(metadata, null, 2) : undefined;
 
   return (
     <div className="metadata-content">
@@ -1636,15 +1895,31 @@ function MetadataPanel({
       <InfoRow label={t("metadata.height")} value={basic?.height ? String(basic.height) : unknownLabel} />
       <InfoRow label={t("metadata.color")} value={basic?.space ?? unknownLabel} />
       <InfoRow label={t("metadata.pages")} value={basic?.pages ? String(basic.pages) : "1"} />
+      <InfoRow label={t("metadata.index")} value={String(item.index + 1)} />
       {loading && <div className="muted-line">{t("metadata.readingMetadata")}</div>}
       {error && <div className="muted-line">{error}</div>}
-      {exifEntries.length > 0 && (
+      {standardExifEntries.length > 0 && (
         <>
           <div className="subheading">{t("metadata.exif")}</div>
-          {exifEntries.map(([key, value]) => (
+          {standardExifEntries.map(([key, value]) => (
             <InfoRow key={key} label={key} value={value} />
           ))}
         </>
+      )}
+      {aiEntries.length > 0 && (
+        <>
+          <div className="subheading">{t("metadata.aiMetadata")}</div>
+          {aiEntries.map(([key, value]) => (
+            <InfoRow key={key} label={key} value={value} />
+          ))}
+        </>
+      )}
+      {rawMetadata && (
+        <details className="raw-metadata">
+          <summary>{t("metadata.rawMetadata")}</summary>
+          {metadata?.truncated && <p className="settings-note">{t("metadata.truncated")}</p>}
+          <pre>{rawMetadata}</pre>
+        </details>
       )}
     </div>
   );

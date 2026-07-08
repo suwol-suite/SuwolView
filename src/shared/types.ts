@@ -143,6 +143,7 @@ export interface AppError {
 export interface RuntimeInfo {
   version: string;
   safeMode: boolean;
+  isPackaged: boolean;
 }
 
 export interface LogFileInfo {

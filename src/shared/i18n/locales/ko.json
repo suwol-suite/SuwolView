@@ -81,17 +81,30 @@
     "height": "높이",
     "color": "색상",
     "pages": "페이지",
+    "index": "인덱스",
     "readingMetadata": "메타데이터 읽는 중",
     "exif": "EXIF",
-    "aiMetadata": "AI 메타데이터"
+    "aiMetadata": "AI 메타데이터",
+    "rawMetadata": "Raw Metadata",
+    "truncated": "일부 메타데이터가 잘렸습니다."
   },
   "cache": {
     "settings": "캐시 설정"
   },
   "settings": {
+    "preferences": "환경설정",
+    "preferencesNote": "변경 사항은 즉시 저장되고 적용됩니다.",
+    "closePreferences": "환경설정 닫기",
+    "general": "일반",
     "language": "언어",
     "systemDefault": "시스템 기본값",
     "theme": "테마",
+    "darkTheme": "어두운 테마",
+    "lightTheme": "밝은 테마",
+    "startupBehavior": "시작 동작",
+    "startupBehaviorDefault": "실행 파일을 열거나 빈 뷰어를 표시합니다.",
+    "defaultUiPolicy": "기본 UI 표시",
+    "defaultUiPolicyImmersive": "필요할 때까지 패널과 도구막대를 숨기는 몰입형 뷰어를 사용합니다.",
     "version": "버전 {{version}}",
     "safeModeActive": "안전 모드가 켜져 있습니다.",
     "fileAssociations": "파일 연결",
@@ -104,7 +117,11 @@
     "installerAssociationNote": "Windows 설치 프로그램을 사용하거나 Windows 기본 앱 설정에서 SuwolView를 선택하세요.",
     "viewLayout": "화면 구성",
     "viewer": "뷰어",
+    "rendering": "렌더링",
+    "about": "정보",
+    "pinTopBar": "상단 도구막대 고정",
     "autoHideTopBar": "상단 도구막대 자동 숨김",
+    "moreViewerControls": "추가 보기 컨트롤",
     "bottomBarFollowsChrome": "하단 상태 표시줄은 도구막대나 좌우 패널이 표시될 때 함께 나타납니다.",
     "alwaysShowTopBar": "상단 도구막대 항상 표시",
     "alwaysShowBottomBar": "하단 상태 표시줄 항상 표시",
@@ -142,7 +159,11 @@
     "macSignedUpdateNote": "macOS 서명 빌드는 앱 안에서 업데이트 확인을 지원합니다.",
     "appImageUpdateNote": "Linux AppImage 빌드는 앱 안에서 업데이트 확인을 지원합니다.",
     "portableUpdateNote": "포터블 압축 파일은 수동 업데이트가 필요할 수 있습니다.",
-    "safeModeUpdateNote": "Safe Mode에서는 업데이트 확인을 하지 않습니다."
+    "safeModeUpdateNote": "Safe Mode에서는 업데이트 확인을 하지 않습니다.",
+    "appName": "앱",
+    "license": "라이선스",
+    "repository": "Repository",
+    "thirdPartyLicenses": "타사 라이선스"
   },
   "updates": {
     "status": {

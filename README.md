@@ -27,9 +27,11 @@ image viewer product.
 - Move to previous and next image
 - Zoom, drag-pan, fit window, fit width, and original size
 - Rotate and flip horizontally
-- Thumbnail sidebar and metadata panel, both hidden by default and resizable when shown
-- Immersive default viewer with an auto-hidden top toolbar and a status bar
-  that appears with the toolbar or side panels
+- Thumbnail sidebar and current-image metadata panel, both hidden by default
+  and resizable when shown
+- Immersive default viewer with common viewer controls in the top toolbar,
+  a top toolbar that can be pinned or auto-hidden, and a status bar that
+  appears with the toolbar or side panels
 - Dark and light themes
 - Korean and English UI language support with system language detection
 - Recent open list
@@ -174,8 +176,12 @@ the top toolbar is hidden until the mouse reaches the top edge, and the bottom
 status bar appears when the toolbar or either side panel is visible. The View
 layout settings can disable top-toolbar auto-hide.
 
-The thumbnail panel and information panel start hidden on first launch. Use the
-toolbar buttons or keyboard shortcuts to show or hide them:
+The thumbnail panel and information panel start hidden on first launch. The
+right information panel is for the current image metadata. Application settings
+are available from Preferences, opened from the top toolbar settings button.
+Common viewer controls are available from the top toolbar, and the top toolbar
+can be pinned or auto-hidden. Use the toolbar buttons or keyboard shortcuts to
+show or hide side panels:
 
 - `T`: toggle the left thumbnail panel
 - `I`: toggle the right information panel
@@ -184,9 +190,9 @@ toolbar buttons or keyboard shortcuts to show or hide them:
 - `Esc`: exit fullscreen when fullscreen is active
 
 When a panel is visible, drag its splitter to resize it. Visibility and panel
-widths are saved and restored on the next launch. Use Reset panel sizes in the
-File associations/settings section to restore the default panel widths. The
-top toolbar auto-hide setting is also saved and restored.
+widths are saved and restored on the next launch. Use Reset panel sizes in
+Preferences to restore the default panel widths. The top toolbar pin/auto-hide
+setting is also saved and restored.
 
 Viewer text and metadata labels are not drag-selectable by default; use the
 copy buttons for values that are intended to be copied.
@@ -220,7 +226,7 @@ Logs can include local file paths for troubleshooting, but they do not
 intentionally store image file contents or raw metadata blocks.
 Each log file is rotated at about 2 MB with up to 5 backups.
 
-The settings panel includes maintenance actions:
+Preferences includes maintenance actions:
 
 - Open logs folder
 - Reset settings
@@ -253,9 +259,8 @@ app follows the system language when it can resolve the system locale to a
 supported language. If the system language is not supported, the UI falls back
 to English.
 
-The language can be changed inside the app from the Language control in the top
-toolbar. Language changes are saved immediately and applied without restarting
-the app.
+The language can be changed inside the app from Preferences. Language changes
+are saved immediately and applied without restarting the app.
 
 Translation files live in `src/shared/i18n/locales`.
 

@@ -459,7 +459,8 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager, u
 
   ipcMain.handle(IPC_CHANNELS.getRuntimeInfo, () => ({
     version: app.getVersion(),
-    safeMode
+    safeMode,
+    isPackaged: app.isPackaged
   }));
 
   ipcMain.handle(IPC_CHANNELS.openLogsFolder, async () => {
