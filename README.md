@@ -29,9 +29,9 @@ image viewer product.
 - Rotate and flip horizontally
 - Thumbnail sidebar and current-image metadata panel, both hidden by default
   and resizable when shown
-- Immersive default viewer with common viewer controls in the top toolbar,
-  a top toolbar that can be pinned or auto-hidden, and a status bar that
-  appears with the toolbar or side panels
+- Immersive default viewer with a compact icon toolbar, a top toolbar that can
+  be pinned or auto-hidden, and a status bar that appears with the toolbar or
+  side panels
 - Dark and light themes
 - Korean and English UI language support with system language detection
 - Recent open list
@@ -79,9 +79,9 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows: `SuwolView-0.2.5-setup.exe` is recommended. `SuwolView-0.2.5-win-x64.zip` is the portable package.
-- Linux: `SuwolView-0.2.5-linux-x64.AppImage` is recommended. `SuwolView-0.2.5-linux-x64.tar.gz` is the portable package.
-- macOS: `SuwolView-0.2.5-mac-arm64.dmg` is recommended. `SuwolView-0.2.5-mac-arm64.zip` is the update/archive package.
+- Windows: `SuwolView-0.2.6-setup.exe` is recommended. `SuwolView-0.2.6-win-x64.zip` is the portable package.
+- Linux: `SuwolView-0.2.6-linux-x64.AppImage` is recommended. `SuwolView-0.2.6-linux-x64.tar.gz` is the portable package.
+- macOS: `SuwolView-0.2.6-mac-arm64.dmg` is recommended. `SuwolView-0.2.6-mac-arm64.zip` is the update/archive package.
 
 Windows and Linux assets may appear first. macOS Apple Silicon assets can be
 attached later to the same GitHub Release after Apple notarization and stapling
@@ -179,9 +179,11 @@ layout settings can disable top-toolbar auto-hide.
 The thumbnail panel and information panel start hidden on first launch. The
 right information panel is for the current image metadata. Application settings
 are available from Preferences, opened from the top toolbar settings button.
-Common viewer controls are available from the top toolbar, and the top toolbar
-can be pinned or auto-hidden. Use the toolbar buttons or keyboard shortcuts to
-show or hide side panels:
+Common viewer controls are available as icon buttons in the top toolbar, while
+the filter preset is available from the top toolbar. Advanced view modes,
+interpolation, and HDR stay in Preferences. The top toolbar can be pinned or
+auto-hidden. Use the toolbar buttons or keyboard shortcuts to show or hide side
+panels:
 
 - `T`: toggle the left thumbnail panel
 - `I`: toggle the right information panel
@@ -206,9 +208,16 @@ SuwolView includes viewer options for:
 - Webtoon view
 - Upscale small images option
 - Zoom percentage display
-- Interpolation filter, including pixelated mode
-- Filter presets
+- Display mode defaults to original size and is saved when changed
+- Interpolation control
+- Filter presets: None keeps pixel art crisp, while smooth presets switch to
+  smoothed interpolation
 - Experimental HDR toggle
+
+Only the most common viewer actions are kept in the top toolbar. Display modes
+are available from the toolbar display button, and filter presets are available
+from the toolbar filter button. Advanced interpolation and HDR options are
+available from Preferences.
 
 Advanced interpolation filters may fall back depending on the renderer backend.
 HDR depends on OS, display, browser/Electron support, and image format.
@@ -285,7 +294,7 @@ Release workflows are configured to produce:
 - `suwol-release-public-key.asc`
 - `latest-mac.yml`
 - `latest-linux.yml`
-- Release notes based on the tag version, for example `docs/release-notes-0.2.5.md`
+- Release notes based on the tag version, for example `docs/release-notes-0.2.6.md`
 
 Release policy:
 
@@ -383,7 +392,7 @@ Large or unsafe metadata blocks may be skipped or truncated.
 
 More detail is available in `docs/security-policy.md`.
 
-Manual release checks are tracked in `docs/manual-qc-0.2.5.md`.
+Manual release checks are tracked in `docs/manual-qc-0.2.6.md`.
 
 ## Contributing
 

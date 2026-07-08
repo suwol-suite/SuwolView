@@ -5,8 +5,8 @@ describe("viewer preferences", () => {
   it("provides default viewer preferences", () => {
     expect(normalizeViewerPreferences()).toEqual(DEFAULT_VIEWER_PREFERENCES);
     expect(DEFAULT_VIEWER_PREFERENCES).toMatchObject({
-      viewMode: "fit-window",
-      upscaleSmallImages: false,
+      viewMode: "original",
+      upscaleSmallImages: true,
       interpolationFilter: "bilinear",
       filterPreset: "smooth",
       hdrEnabled: false,

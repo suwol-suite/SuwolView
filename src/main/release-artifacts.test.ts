@@ -231,7 +231,7 @@ describe("release artifact policy", () => {
     expect(workflow).not.toContain("set -x");
     expect(workflow).not.toContain("echo \"$MAC_KEYCHAIN_PASSWORD\"");
     expect(workflow).toContain("diagnostics/*.json");
-    expect(workflow).toContain("macos-build-diagnostics-0.2.5");
+    expect(workflow).toContain("macos-build-diagnostics-0.2.6");
     expect(workflow).not.toContain("gh release");
     expect(workflow).not.toContain("Create GitHub Release");
   });

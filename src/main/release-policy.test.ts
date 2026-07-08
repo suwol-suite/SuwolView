@@ -6,7 +6,7 @@ describe("release policy", () => {
   it("marks the project package as Apache-2.0 licensed", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8")) as { license?: string; version?: string };
 
-    expect(packageJson.version).toBe("0.2.5");
+    expect(packageJson.version).toBe("0.2.6");
     expect(packageJson.license).toBe("Apache-2.0");
   });
 
@@ -30,8 +30,8 @@ describe("release policy", () => {
 
   it("documents core-first release publishing with later macOS attach", async () => {
     const readme = await readFile("README.md", "utf8");
-    const releaseNotes = await readFile("docs/release-notes-0.2.5.md", "utf8");
-    const manualQc = await readFile("docs/manual-qc-0.2.5.md", "utf8");
+    const releaseNotes = await readFile("docs/release-notes-0.2.6.md", "utf8");
+    const manualQc = await readFile("docs/manual-qc-0.2.6.md", "utf8");
 
     expect(readme).toContain("Windows and Linux assets are published first.");
     expect(readme).toContain("macOS Apple Silicon assets may be attached later after Apple notarization completes.");

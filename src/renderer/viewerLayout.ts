@@ -64,4 +64,3 @@ export function imageRenderingClass(interpolationFilter: string): string {
 export function filterPresetClass(filterPreset: string): string {
   return `filter-${filterPreset}`;
 }
-

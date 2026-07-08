@@ -44,4 +44,19 @@ describe("preferences modal", () => {
     expect(updatesPanel).toContain('t("settings.appImageUpdateNote")');
     expect(updatesPanel).toContain('t("settings.portableUpdateNote")');
   });
+
+  it("keeps advanced view modes and rendering options in preferences", async () => {
+    const source = await readApp();
+    const viewerStart = source.indexOf('activeTab === "viewer"');
+    const renderingStart = source.indexOf('activeTab === "rendering"', viewerStart);
+    const updatesStart = source.indexOf('activeTab === "updates"', renderingStart);
+    const viewerPanel = source.slice(viewerStart, renderingStart);
+    const renderingPanel = source.slice(renderingStart, updatesStart);
+
+    expect(viewerPanel).toContain('t("viewer.viewMode")');
+    expect(viewerPanel).toContain("viewModeOptions.map");
+    expect(renderingPanel).toContain('t("viewer.interpolationFilter")');
+    expect(renderingPanel).toContain("interpolationOptions.map");
+    expect(renderingPanel).not.toContain("filterPresetOptions.map");
+  });
 });

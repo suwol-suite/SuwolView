@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AppUpdater, UpdateCheckResult } from "electron-updater";
 import { resolveUpdateSupport, UpdateService } from "./updateService";
 
-const currentVersion = "0.2.5";
-const nextVersion = "0.2.6";
+const currentVersion = "0.2.6";
+const nextVersion = "0.2.7";
 
 class FakeUpdater extends EventEmitter {
   autoDownload = true;

@@ -55,7 +55,8 @@ describe("settings recovery", () => {
     expect(preferences.theme).toBe("dark");
     expect(preferences.language).toBe("system");
     expect(preferences.topBarMode).toBe("auto");
-    expect(preferences.viewMode).toBe("fit-window");
+    expect(preferences.viewMode).toBe("original");
+    expect(preferences.upscaleSmallImages).toBe(true);
     expect(preferences.interpolationFilter).toBe("bilinear");
     expect(preferences.filterPreset).toBe("smooth");
     expect(preferences.hdrEnabled).toBe(false);

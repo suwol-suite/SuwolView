@@ -1,17 +1,20 @@
 import {
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Download,
   FolderCog,
   ExternalLink,
   FileImage,
   FlipHorizontal,
+  FlipVertical,
   FolderOpen,
   Fullscreen,
+  History,
   Image as ImageIcon,
   Info,
-  Maximize2,
   Minimize2,
-  MoreHorizontal,
+  Monitor,
   PanelLeft,
   PanelRight,
   Pin,
@@ -20,10 +23,9 @@ import {
   RefreshCw,
   RotateCcw,
   RotateCw,
-  Rows3,
-  Scan,
   Settings as SettingsIcon,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   X,
   ZoomIn,
@@ -81,6 +83,7 @@ interface Point {
 
 type ResizePanelSide = "left" | "right";
 type PreferencesTab = "general" | "viewer" | "rendering" | "updates" | "fileAssociations" | "maintenance" | "about";
+type ToolbarMenu = "recent" | "view" | "filter";
 
 interface PanelResizeState {
   side: ResizePanelSide;
@@ -127,6 +130,20 @@ const filterPresetLabelKeys: Record<ImageFilterPreset, string> = {
   smooth: "viewer.filterSmooth",
   "extra-smooth": "viewer.filterExtraSmooth",
   sharp: "viewer.filterSharp"
+};
+
+const interpolationForFilterPreset: Record<ImageFilterPreset, InterpolationFilter> = {
+  none: "nearest",
+  smooth: "bilinear",
+  "extra-smooth": "bicubic",
+  sharp: "lanczos"
+};
+
+const filterPresetForInterpolation: Record<InterpolationFilter, ImageFilterPreset> = {
+  nearest: "none",
+  bilinear: "smooth",
+  bicubic: "extra-smooth",
+  lanczos: "sharp"
 };
 
 const preferenceTabs: readonly { id: PreferencesTab; labelKey: string }[] = [
@@ -262,6 +279,7 @@ export function App(): React.ReactElement {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [flippedVertical, setFlippedVertical] = useState(false);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [imageSize, setImageSize] = useState<ImageSize | undefined>();
@@ -271,6 +289,7 @@ export function App(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [toolbarMenu, setToolbarMenu] = useState<ToolbarMenu | undefined>();
 
   const items = library?.items ?? [];
   const currentItem = items[currentIndex];
@@ -292,7 +311,12 @@ export function App(): React.ReactElement {
   const twoPageItems = useMemo(() => selectTwoPageItems(items, currentIndex, viewMode), [currentIndex, items, viewMode]);
   const webtoonItems = useMemo(() => selectWebtoonItems(items), [items]);
 
-  const calculateViewZoom = useCallback((mode: ViewMode, size = displayedSize, nextUserZoom = userZoom): number => {
+  const calculateViewZoom = useCallback((
+    mode: ViewMode,
+    size = displayedSize,
+    nextUserZoom = userZoom,
+    nextUpscaleSmallImages = upscaleSmallImages
+  ): number => {
     if (!viewerRef.current || !size?.width || !size.height) return clamp(nextUserZoom || 1, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE);
     const bounds = viewerRef.current.getBoundingClientRect();
     const availableWidth = Math.max(120, bounds.width - 48);
@@ -305,7 +329,7 @@ export function App(): React.ReactElement {
       viewportWidth: availableWidth,
       viewportHeight: availableHeight,
       viewMode: mode,
-      upscaleSmallImages,
+      upscaleSmallImages: nextUpscaleSmallImages,
       userZoom: nextUserZoom
     });
   }, [displayedSize, twoPageItems.length, upscaleSmallImages, userZoom]);
@@ -321,6 +345,7 @@ export function App(): React.ReactElement {
     setPan({ x: 0, y: 0 });
     setRotation(0);
     setFlipped(false);
+    setFlippedVertical(false);
     if (resetZoomOnImageChange) {
       setUserZoom(1);
       setZoom(1);
@@ -397,7 +422,7 @@ export function App(): React.ReactElement {
     setCheckForUpdatesOnStartup(preferences.checkForUpdatesOnStartup);
     setViewModeState(preferences.viewMode);
     setUpscaleSmallImages(preferences.upscaleSmallImages);
-    setInterpolationFilter(preferences.interpolationFilter);
+    setInterpolationFilter(interpolationForFilterPreset[preferences.filterPreset]);
     setFilterPreset(preferences.filterPreset);
     setHdrEnabled(preferences.hdrEnabled);
     setShowZoomPercent(preferences.showZoomPercent);
@@ -422,11 +447,13 @@ export function App(): React.ReactElement {
   const previousImage = useCallback(() => moveTo(currentIndex - 1), [currentIndex, moveTo]);
 
   const setViewMode = useCallback((mode: ViewMode) => {
+    const nextUpscaleSmallImages = mode === "original" || mode === "webtoon" ? upscaleSmallImages : true;
     setViewModeState(mode);
+    setUpscaleSmallImages(nextUpscaleSmallImages);
     setPan({ x: 0, y: 0 });
     setUserZoom(1);
-    setZoom(calculateViewZoom(mode, displayedSize, 1));
-  }, [calculateViewZoom, displayedSize]);
+    setZoom(calculateViewZoom(mode, displayedSize, 1, nextUpscaleSmallImages));
+  }, [calculateViewZoom, displayedSize, upscaleSmallImages]);
 
   const zoomBy = useCallback((factor: number) => {
     setUserZoom((value) => clamp(value * factor, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE));
@@ -791,6 +818,12 @@ export function App(): React.ReactElement {
       const editableTarget = isEditableShortcutTarget(event.target);
       const interactiveTarget = isInteractiveShortcutTarget(event.target);
 
+      if (toolbarMenu && event.key === "Escape") {
+        event.preventDefault();
+        setToolbarMenu(undefined);
+        return;
+      }
+
       if (preferencesOpen) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -853,6 +886,7 @@ export function App(): React.ReactElement {
     preferencesOpen,
     previousImage,
     setViewMode,
+    toolbarMenu,
     toggleFullscreen,
     zoomBy
   ]);
@@ -994,12 +1028,18 @@ export function App(): React.ReactElement {
     });
   }, [t]);
 
-  const togglePixelMode = useCallback(() => {
-    setInterpolationFilter((value) => (value === "nearest" ? "bilinear" : "nearest"));
-  }, []);
-
   const toggleTopBarPin = useCallback(() => {
     setTopBarMode((value) => (value === "always" ? "auto" : "always"));
+  }, []);
+
+  const setFilterPresetWithInterpolation = useCallback((preset: ImageFilterPreset) => {
+    setFilterPreset(preset);
+    setInterpolationFilter(interpolationForFilterPreset[preset]);
+  }, []);
+
+  const setInterpolationFilterWithPreset = useCallback((filter: InterpolationFilter) => {
+    setInterpolationFilter(filter);
+    setFilterPreset(filterPresetForInterpolation[filter]);
   }, []);
 
   const applyUpdateResult = useCallback((result: Awaited<ReturnType<typeof window.suwol.checkForUpdates>>) => {
@@ -1054,12 +1094,24 @@ export function App(): React.ReactElement {
       });
   }, [applyPreferences, t]);
 
-  const displayTransform = {
-    transform: `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg) scaleX(${flipped ? -1 : 1}) scale(${zoom})`
+  const displayTransform: React.CSSProperties = {
+    transform: `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg) scaleX(${flipped ? -1 : 1}) scaleY(${flippedVertical ? -1 : 1})`
   };
+  const scaledImageDimensions: React.CSSProperties = imageSize
+    ? {
+        width: `${Math.max(1, Math.round(imageSize.width * zoom))}px`,
+        height: `${Math.max(1, Math.round(imageSize.height * zoom))}px`
+      }
+    : {};
+  const mainImageStyle: React.CSSProperties = {
+    ...scaledImageDimensions,
+    ...displayTransform
+  };
+  const twoPageImageStyle: React.CSSProperties | undefined = imageSize ? scaledImageDimensions : undefined;
+  const effectiveInterpolationFilter = interpolationForFilterPreset[filterPreset];
   const imageClassName = [
     "viewer-image",
-    imageRenderingClass(interpolationFilter),
+    imageRenderingClass(effectiveInterpolationFilter),
     filterPresetClass(filterPreset),
     hdrEnabled ? "hdr-enabled" : undefined
   ].filter(Boolean).join(" ");
@@ -1113,99 +1165,54 @@ export function App(): React.ReactElement {
         onBlurCapture={handleTopChromeBlur}
       >
         <div className="toolbar-group toolbar-primary">
-          <button className="command-button" onClick={openFile} disabled={busy} title={t("toolbar.openFile")}>
+          <button aria-label={t("toolbar.openFile")} className="icon-button toolbar-icon-only" onClick={openFile} disabled={busy} title={t("toolbar.openFile")}>
             <FileImage size={17} />
-            <span className="button-label optional-label">{t("toolbar.openFile")}</span>
           </button>
-          <button className="command-button" onClick={openFolder} disabled={busy} title={t("toolbar.openFolder")}>
+          <button aria-label={t("toolbar.openFolder")} className="icon-button toolbar-icon-only" onClick={openFolder} disabled={busy} title={t("toolbar.openFolder")}>
             <FolderOpen size={17} />
-            <span className="button-label optional-label">{t("toolbar.openFolder")}</span>
           </button>
-          <select
-            aria-label={t("viewer.viewMode")}
-            className="select-control view-mode-select"
-            value={viewMode}
-            onChange={(event) => setViewMode(event.target.value as ViewMode)}
+          <button
+            aria-expanded={toolbarMenu === "recent"}
+            aria-label={t("toolbar.recentItems")}
+            className={`icon-button toolbar-icon-only ${toolbarMenu === "recent" ? "active" : ""}`}
+            disabled={recent.length === 0}
+            onClick={() => setToolbarMenu((value) => (value === "recent" ? undefined : "recent"))}
+            title={t("toolbar.recentItems")}
           >
-            {viewModeOptions.map((value) => (
-              <option key={value} value={value}>
-                {t(viewModeLabelKeys[value])}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label={t("toolbar.recent")}
-            className="select-control recent-select optional-toolbar-control"
-            value=""
-            onChange={(event) => openRecent(event.target.value)}
-            title={t("toolbar.recent")}
-          >
-            <option value="">{t("toolbar.recent")}</option>
-            {recent.map((source) => (
-              <option key={source.id} value={source.id}>
-                {source.name}
-              </option>
-            ))}
-          </select>
+            <History size={18} />
+          </button>
         </div>
 
         <div className="toolbar-group toolbar-secondary">
+          <button className="icon-button" onClick={previousImage} disabled={currentIndex <= 0} title={t("shortcuts.previous")}>
+            <ChevronLeft size={18} />
+          </button>
           <button className="icon-button" onClick={() => zoomBy(1 / 1.15)} disabled={!currentItem} title={t("toolbar.zoomOut")}>
             <ZoomOut size={18} />
+          </button>
+          <button className="zoom-chip zoom-chip-button" onClick={() => setViewMode("original")} disabled={!currentItem} title={t("toolbar.originalSize")}>
+            {zoomPercent}%
           </button>
           <button className="icon-button" onClick={() => zoomBy(1.15)} disabled={!currentItem} title={t("toolbar.zoomIn")}>
             <ZoomIn size={18} />
           </button>
-          <button className="icon-button" onClick={() => setViewMode("fit-window")} disabled={!currentItem} title={t("toolbar.fitWindow")}>
-            <Maximize2 size={18} />
-          </button>
-          <button className="icon-button" onClick={() => setViewMode("fit-width")} disabled={!currentItem} title={t("toolbar.fitWidth")}>
-            <Scan size={18} />
-          </button>
-          <button className="icon-button" onClick={() => setViewMode("webtoon")} disabled={!currentItem} title={t("toolbar.webtoonScroll")}>
-            <Rows3 size={18} />
+          <button className="icon-button" onClick={nextImage} disabled={currentIndex >= itemCount - 1} title={t("shortcuts.next")}>
+            <ChevronRight size={18} />
           </button>
           <button
-            aria-pressed={interpolationFilter === "nearest"}
-            className={`icon-button ${interpolationFilter === "nearest" ? "active" : ""}`}
-            onClick={togglePixelMode}
-            disabled={!currentItem}
-            title={t("viewer.pixelMode")}
+            aria-expanded={toolbarMenu === "view"}
+            aria-label={t("viewer.viewMode")}
+            className={`icon-button ${toolbarMenu === "view" || viewMode !== "original" ? "active" : ""}`}
+            onClick={() => setToolbarMenu((value) => (value === "view" ? undefined : "view"))}
+            title={t("viewer.viewMode")}
           >
-            <Scan size={18} />
+            <Monitor size={18} />
           </button>
-          <select
-            aria-label={t("viewer.interpolationFilter")}
-            className="select-control compact-select wide-toolbar-control"
-            value={interpolationFilter}
-            onChange={(event) => setInterpolationFilter(event.currentTarget.value as InterpolationFilter)}
-            title={t("viewer.interpolationFilter")}
-          >
-            {interpolationOptions.map((value) => (
-              <option key={value} value={value}>
-                {t(interpolationLabelKeys[value])}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label={t("viewer.filterPreset")}
-            className="select-control compact-select wide-toolbar-control"
-            value={filterPreset}
-            onChange={(event) => setFilterPreset(event.currentTarget.value as ImageFilterPreset)}
-            title={t("viewer.filterPreset")}
-          >
-            {filterPresetOptions.map((value) => (
-              <option key={value} value={value}>
-                {t(filterPresetLabelKeys[value])}
-              </option>
-            ))}
-          </select>
-          {showZoomPercent && <span className="zoom-chip" title={t("viewer.zoomPercent", { percent: zoomPercent })}>{zoomPercent}%</span>}
           <button
             aria-pressed={fullscreen}
             className={`icon-button ${fullscreen ? "active" : ""}`}
             onClick={toggleFullscreen}
-            title={t(fullscreen ? "toolbar.exitFullscreen" : "toolbar.toggleFullscreen")}
+            title={t(fullscreen ? "toolbar.exitFullscreen" : "toolbar.fullscreen")}
           >
             {fullscreen ? <Minimize2 size={18} /> : <Fullscreen size={18} />}
           </button>
@@ -1217,11 +1224,46 @@ export function App(): React.ReactElement {
           >
             {topBarMode === "always" ? <Pin size={18} /> : <PinOff size={18} />}
           </button>
-          <button className="icon-button wide-toolbar-control" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!currentItem} title={t("toolbar.rotate")}>
+          <button
+            aria-expanded={toolbarMenu === "filter"}
+            aria-label={t("viewer.filterPreset")}
+            className={`icon-button ${toolbarMenu === "filter" || filterPreset !== "none" ? "active" : ""}`}
+            onClick={() => setToolbarMenu((value) => (value === "filter" ? undefined : "filter"))}
+            title={t("viewer.filterPreset")}
+          >
+            <SlidersHorizontal size={18} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => setRotation((value) => (value + 270) % 360)}
+            disabled={!currentItem}
+            title={t("toolbar.rotateLeft90")}
+          >
+            <RotateCcw size={18} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => setRotation((value) => (value + 90) % 360)}
+            disabled={!currentItem}
+            title={t("toolbar.rotateRight90")}
+          >
             <RotateCw size={18} />
           </button>
-          <button className="icon-button wide-toolbar-control" onClick={() => setFlipped((value) => !value)} disabled={!currentItem} title={t("toolbar.flipHorizontal")}>
+          <button
+            className="icon-button"
+            onClick={() => setFlipped((value) => !value)}
+            disabled={!currentItem}
+            title={t("toolbar.flipHorizontal")}
+          >
             <FlipHorizontal size={18} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => setFlippedVertical((value) => !value)}
+            disabled={!currentItem}
+            title={t("toolbar.flipVertical")}
+          >
+            <FlipVertical size={18} />
           </button>
           <button className="icon-button" onClick={() => setLeftPanelVisible((value) => !value)} title={t("toolbar.thumbnails")}>
             <PanelLeft size={18} />
@@ -1229,58 +1271,79 @@ export function App(): React.ReactElement {
           <button className="icon-button" onClick={() => setRightPanelVisible((value) => !value)} title={t("toolbar.info")}>
             <PanelRight size={18} />
           </button>
-          <details className="toolbar-more">
-            <summary className="icon-button" aria-label={t("settings.moreViewerControls")} title={t("settings.moreViewerControls")}>
-              <MoreHorizontal size={18} />
-            </summary>
-            <div className="toolbar-more-menu">
-              <button className="panel-command-button" onClick={() => setRotation((value) => (value + 90) % 360)} disabled={!currentItem}>
-                <RotateCw size={15} />
-                <span>{t("toolbar.rotate")}</span>
-              </button>
-              <button className="panel-command-button" onClick={() => setFlipped((value) => !value)} disabled={!currentItem}>
-                <FlipHorizontal size={15} />
-                <span>{t("toolbar.flipHorizontal")}</span>
-              </button>
-              <label className="settings-field compact-more-field">
-                <span>{t("viewer.interpolationFilter")}</span>
-                <select
-                  className="select-control settings-select"
-                  value={interpolationFilter}
-                  onChange={(event) => setInterpolationFilter(event.currentTarget.value as InterpolationFilter)}
-                >
-                  {interpolationOptions.map((value) => (
-                    <option key={value} value={value}>
-                      {t(interpolationLabelKeys[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="settings-field compact-more-field">
-                <span>{t("viewer.filterPreset")}</span>
-                <select
-                  className="select-control settings-select"
-                  value={filterPreset}
-                  onChange={(event) => setFilterPreset(event.currentTarget.value as ImageFilterPreset)}
-                >
-                  {filterPresetOptions.map((value) => (
-                    <option key={value} value={value}>
-                      {t(filterPresetLabelKeys[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="settings-check">
-                <input type="checkbox" checked={hdrEnabled} onChange={(event) => setHdrEnabled(event.currentTarget.checked)} />
-                <span>{t("viewer.hdrViewing")}</span>
-              </label>
-            </div>
-          </details>
-          <button className="icon-button" onClick={() => setPreferencesOpen(true)} title={t("settings.preferences")}>
+          <button
+            className="icon-button"
+            onClick={() => {
+              setToolbarMenu(undefined);
+              setPreferencesOpen(true);
+            }}
+            title={t("settings.preferences")}
+          >
             <SettingsIcon size={18} />
           </button>
         </div>
       </header>
+
+      {toolbarMenu && (
+        <>
+          <div className="toolbar-popover-backdrop" onMouseDown={() => setToolbarMenu(undefined)} />
+          {toolbarMenu === "recent" && (
+            <div className="toolbar-popover toolbar-popover-left">
+              {recent.map((source) => (
+                <button
+                  key={source.id}
+                  className="panel-command-button"
+                  onClick={() => {
+                    setToolbarMenu(undefined);
+                    openRecent(source.id);
+                  }}
+                  title={source.path}
+                >
+                  <span>{source.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {toolbarMenu === "view" && (
+            <div className="toolbar-popover toolbar-popover-right">
+              <div className="toolbar-popover-title">{t("viewer.viewMode")}</div>
+              {viewModeOptions.map((value) => (
+                <button
+                  key={value}
+                  aria-pressed={viewMode === value}
+                  className={`panel-command-button ${viewMode === value ? "active" : ""}`}
+                  onClick={() => {
+                    setToolbarMenu(undefined);
+                    setViewMode(value);
+                  }}
+                  type="button"
+                >
+                  <span>{t(viewModeLabelKeys[value])}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {toolbarMenu === "filter" && (
+            <div className="toolbar-popover toolbar-popover-right">
+              <div className="toolbar-popover-title">{t("viewer.filterPreset")}</div>
+              {filterPresetOptions.map((value) => (
+                <button
+                  key={value}
+                  aria-pressed={filterPreset === value}
+                  className={`panel-command-button ${filterPreset === value ? "active" : ""}`}
+                  onClick={() => {
+                    setToolbarMenu(undefined);
+                    setFilterPresetWithInterpolation(value);
+                  }}
+                  type="button"
+                >
+                  <span>{t(filterPresetLabelKeys[value])}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <main className={`workspace ${isResizingPanel ? "resizing-panel" : ""}`} style={workspaceStyle}>
         {leftPanelVisible && (
@@ -1326,7 +1389,6 @@ export function App(): React.ReactElement {
             <div className="empty-state">
               <ImageIcon size={48} />
               <span>{t("viewer.emptyTitle")}</span>
-              <span className="empty-hint">{t("viewer.topBarAutoHint")}</span>
             </div>
           )}
 
@@ -1336,7 +1398,7 @@ export function App(): React.ReactElement {
               src={currentItem.displayUrl}
               alt={currentItem.name}
               draggable={false}
-              style={displayTransform}
+              style={mainImageStyle}
               onLoad={(event) => {
                 const nextSize = {
                   width: event.currentTarget.naturalWidth,
@@ -1358,6 +1420,7 @@ export function App(): React.ReactElement {
                   alt={item.name}
                   draggable={false}
                   loading={item.id === currentItem.id ? "eager" : "lazy"}
+                  style={twoPageImageStyle}
                   onLoad={(event) => {
                     if (item.id !== currentItem.id) return;
                     const nextSize = {
@@ -1448,9 +1511,8 @@ export function App(): React.ReactElement {
           onResetPanelSizes={resetPanelSizes}
           onResetSettings={resetSettings}
           onRestartInSafeMode={restartInSafeMode}
-          onSetFilterPreset={setFilterPreset}
           onSetHdrEnabled={setHdrEnabled}
-          onSetInterpolationFilter={setInterpolationFilter}
+          onSetInterpolationFilter={setInterpolationFilterWithPreset}
           onSetResetZoomOnImageChange={setResetZoomOnImageChange}
           onSetShowZoomPercent={setShowZoomPercent}
           onSetTheme={setThemeMode}
@@ -1503,7 +1565,6 @@ function PreferencesModal({
   onResetPanelSizes,
   onResetSettings,
   onRestartInSafeMode,
-  onSetFilterPreset,
   onSetHdrEnabled,
   onSetInterpolationFilter,
   onSetResetZoomOnImageChange,
@@ -1540,7 +1601,6 @@ function PreferencesModal({
   onResetPanelSizes: () => void;
   onResetSettings: () => void;
   onRestartInSafeMode: () => void;
-  onSetFilterPreset: (preset: ImageFilterPreset) => void;
   onSetHdrEnabled: (enabled: boolean) => void;
   onSetInterpolationFilter: (filter: InterpolationFilter) => void;
   onSetResetZoomOnImageChange: (enabled: boolean) => void;
@@ -1713,20 +1773,6 @@ function PreferencesModal({
                     {interpolationOptions.map((value) => (
                       <option key={value} value={value}>
                         {t(interpolationLabelKeys[value])}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="settings-field">
-                  <span>{t("viewer.filterPreset")}</span>
-                  <select
-                    className="select-control settings-select"
-                    value={viewerPreferences.filterPreset}
-                    onChange={(event) => onSetFilterPreset(event.currentTarget.value as ImageFilterPreset)}
-                  >
-                    {filterPresetOptions.map((value) => (
-                      <option key={value} value={value}>
-                        {t(filterPresetLabelKeys[value])}
                       </option>
                     ))}
                   </select>

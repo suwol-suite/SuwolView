@@ -1,13 +1,8 @@
-import type {
-  ImageFilterPreset,
-  ImageViewMode,
-  InterpolationFilter,
-  ViewerPreferences
-} from "./types";
+import type { ImageFilterPreset, ImageViewMode, InterpolationFilter, ViewerPreferences } from "./types";
 
 export const DEFAULT_VIEWER_PREFERENCES: ViewerPreferences = {
-  viewMode: "fit-window",
-  upscaleSmallImages: false,
+  viewMode: "original",
+  upscaleSmallImages: true,
   interpolationFilter: "bilinear",
   filterPreset: "smooth",
   hdrEnabled: false,
