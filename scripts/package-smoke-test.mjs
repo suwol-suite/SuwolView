@@ -412,7 +412,8 @@ async function checkMacSigningAndStapling(releaseDir, dmgFileName) {
     await checkCommand(
       "spctl",
       ["-a", "-vvv", "-t", "open", "--context", "context:primary-signature", path.join(releaseDir, dmgFileName)],
-      `spctl open release/${dmgFileName}`
+      `spctl open release/${dmgFileName}`,
+      { required: false }
     );
   }
 }

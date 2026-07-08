@@ -55,6 +55,7 @@ describe("release artifact policy", () => {
     expect(smokeScript).toContain("stapler");
     expect(smokeScript).toContain("required: false");
     expect(smokeScript).toContain("context:primary-signature");
+    expect(smokeScript).toContain("spctl open release/${dmgFileName}");
     expect(smokeScript).toContain("macOS signing and notarization checks skipped on non-macOS host");
   });
 
