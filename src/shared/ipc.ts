@@ -10,6 +10,7 @@ export const IPC_CHANNELS = {
   setTheme: "suwol:set-theme",
   updatePanelPreferences: "settings:update-panel-preferences",
   updateChromePreferences: "settings:update-chrome-preferences",
+  updateViewerPreferences: "settings:update-viewer-preferences",
   updateUpdatePreferences: "update:setPreferences",
   toggleFullscreen: "app:toggleFullscreen",
   setFullscreen: "app:setFullscreen",

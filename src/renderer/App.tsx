@@ -43,11 +43,14 @@ import {
   RIGHT_PANEL_MAX_WIDTH,
   RIGHT_PANEL_MIN_WIDTH
 } from "../shared/panelPreferences";
+import { DEFAULT_VIEWER_PREFERENCES } from "../shared/viewerPreferences";
 import type {
   AppLanguageSetting,
   AppError,
   CacheStats,
   ChromeBarMode,
+  ImageFilterPreset,
+  InterpolationFilter,
   ImageMetadata,
   LibraryItem,
   LocaleInfo,
@@ -57,8 +60,11 @@ import type {
   RuntimeInfo,
   ThemeMode,
   UpdateState,
+  ViewerPreferences,
   ViewMode
 } from "../shared/types";
+import { filterPresetClass, imageRenderingClass, computeImageScale, MAX_IMAGE_SCALE, MIN_IMAGE_SCALE } from "./viewerLayout";
+import { isTwoPageMode, selectTwoPageItems, selectWebtoonItems } from "./twoPageMode";
 
 interface ImageSize {
   width: number;
@@ -78,20 +84,45 @@ interface PanelResizeState {
   startWidth: number;
 }
 
-const MIN_ZOOM = 0.05;
-const MAX_ZOOM = 12;
 const PANEL_STATE_DELAY_MS = 250;
 const METADATA_REQUEST_DELAY_MS = 250;
 
-const viewModeOptions: readonly ViewMode[] = ["single", "fit-window", "fit-width", "original", "webtoon", "comic-page"];
+const viewModeOptions: readonly ViewMode[] = [
+  "original",
+  "fit-window",
+  "fit-width",
+  "fit-height",
+  "smart-two-page-left-to-right",
+  "smart-two-page-right-to-left",
+  "webtoon"
+];
 
 const viewModeLabelKeys: Record<ViewMode, string> = {
-  single: "viewer.singleImage",
-  "fit-window": "viewer.fitWindow",
-  "fit-width": "viewer.fitWidth",
-  original: "viewer.originalSize",
-  webtoon: "viewer.webtoonScroll",
-  "comic-page": "viewer.comicPage"
+  original: "viewer.viewModeOriginal",
+  "fit-window": "viewer.viewModeFitWindow",
+  "fit-width": "viewer.viewModeFitWidth",
+  "fit-height": "viewer.viewModeFitHeight",
+  "smart-two-page-left-to-right": "viewer.viewModeSmartTwoPageLeftToRight",
+  "smart-two-page-right-to-left": "viewer.viewModeSmartTwoPageRightToLeft",
+  webtoon: "viewer.viewModeWebtoon"
+};
+
+const interpolationOptions: readonly InterpolationFilter[] = ["nearest", "bilinear", "bicubic", "lanczos"];
+
+const interpolationLabelKeys: Record<InterpolationFilter, string> = {
+  nearest: "viewer.interpolationNearest",
+  bilinear: "viewer.interpolationBilinear",
+  bicubic: "viewer.interpolationBicubic",
+  lanczos: "viewer.interpolationLanczos"
+};
+
+const filterPresetOptions: readonly ImageFilterPreset[] = ["none", "smooth", "extra-smooth", "sharp"];
+
+const filterPresetLabelKeys: Record<ImageFilterPreset, string> = {
+  none: "viewer.filterNone",
+  smooth: "viewer.filterSmooth",
+  "extra-smooth": "viewer.filterExtraSmooth",
+  sharp: "viewer.filterSharp"
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -160,6 +191,7 @@ export function App(): React.ReactElement {
   const panelResizeRef = useRef<PanelResizeState | null>(null);
   const panelSaveTimerRef = useRef<number | undefined>(undefined);
   const chromeSaveTimerRef = useRef<number | undefined>(undefined);
+  const viewerSaveTimerRef = useRef<number | undefined>(undefined);
   const topChromeHideTimerRef = useRef<number | undefined>(undefined);
   const topChromeHoveredRef = useRef(false);
   const topChromeFocusedRef = useRef(false);
@@ -188,7 +220,16 @@ export function App(): React.ReactElement {
   const [topBarAutoVisible, setTopBarAutoVisible] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [isResizingPanel, setIsResizingPanel] = useState(false);
-  const [viewMode, setViewModeState] = useState<ViewMode>("fit-window");
+  const [viewMode, setViewModeState] = useState<ViewMode>(DEFAULT_VIEWER_PREFERENCES.viewMode);
+  const [upscaleSmallImages, setUpscaleSmallImages] = useState(DEFAULT_VIEWER_PREFERENCES.upscaleSmallImages);
+  const [interpolationFilter, setInterpolationFilter] = useState<InterpolationFilter>(
+    DEFAULT_VIEWER_PREFERENCES.interpolationFilter
+  );
+  const [filterPreset, setFilterPreset] = useState<ImageFilterPreset>(DEFAULT_VIEWER_PREFERENCES.filterPreset);
+  const [hdrEnabled, setHdrEnabled] = useState(DEFAULT_VIEWER_PREFERENCES.hdrEnabled);
+  const [showZoomPercent, setShowZoomPercent] = useState(DEFAULT_VIEWER_PREFERENCES.showZoomPercent);
+  const [resetZoomOnImageChange, setResetZoomOnImageChange] = useState(DEFAULT_VIEWER_PREFERENCES.resetZoomOnImageChange);
+  const [userZoom, setUserZoom] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -218,19 +259,26 @@ export function App(): React.ReactElement {
     return imageSize;
   }, [imageSize, metadata]);
 
-  const calculateFitZoom = useCallback((mode: ViewMode, size = displayedSize): number => {
-    if (!viewerRef.current || !size?.width || !size.height) return zoom;
+  const twoPageItems = useMemo(() => selectTwoPageItems(items, currentIndex, viewMode), [currentIndex, items, viewMode]);
+  const webtoonItems = useMemo(() => selectWebtoonItems(items), [items]);
+
+  const calculateViewZoom = useCallback((mode: ViewMode, size = displayedSize, nextUserZoom = userZoom): number => {
+    if (!viewerRef.current || !size?.width || !size.height) return clamp(nextUserZoom || 1, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE);
     const bounds = viewerRef.current.getBoundingClientRect();
     const availableWidth = Math.max(120, bounds.width - 48);
     const availableHeight = Math.max(120, bounds.height - 48);
+    const pageCount = isTwoPageMode(mode) ? Math.max(1, twoPageItems.length) : 1;
 
-    if (mode === "original") return 1;
-    if (mode === "fit-width") return clamp(availableWidth / size.width, MIN_ZOOM, MAX_ZOOM);
-    if (mode === "fit-window" || mode === "comic-page") {
-      return clamp(Math.min(availableWidth / size.width, availableHeight / size.height), MIN_ZOOM, MAX_ZOOM);
-    }
-    return zoom;
-  }, [displayedSize, zoom]);
+    return computeImageScale({
+      imageWidth: size.width * pageCount,
+      imageHeight: size.height,
+      viewportWidth: availableWidth,
+      viewportHeight: availableHeight,
+      viewMode: mode,
+      upscaleSmallImages,
+      userZoom: nextUserZoom
+    });
+  }, [displayedSize, twoPageItems.length, upscaleSmallImages, userZoom]);
 
   const applyOpenResult = useCallback((result: OpenLibraryResult | null) => {
     if (!result) return;
@@ -243,9 +291,11 @@ export function App(): React.ReactElement {
     setPan({ x: 0, y: 0 });
     setRotation(0);
     setFlipped(false);
-    setViewModeState("fit-window");
-    setZoom(1);
-  }, []);
+    if (resetZoomOnImageChange) {
+      setUserZoom(1);
+      setZoom(1);
+    }
+  }, [resetZoomOnImageChange]);
 
   const runOpenAction = useCallback(async (action: () => Promise<OpenLibraryResult | null>) => {
     const requestId = openRequestRef.current + 1;
@@ -315,6 +365,13 @@ export function App(): React.ReactElement {
     setLeftPanelWidth(preferences.leftPanelWidth);
     setRightPanelWidth(preferences.rightPanelWidth);
     setCheckForUpdatesOnStartup(preferences.checkForUpdatesOnStartup);
+    setViewModeState(preferences.viewMode);
+    setUpscaleSmallImages(preferences.upscaleSmallImages);
+    setInterpolationFilter(preferences.interpolationFilter);
+    setFilterPreset(preferences.filterPreset);
+    setHdrEnabled(preferences.hdrEnabled);
+    setShowZoomPercent(preferences.showZoomPercent);
+    setResetZoomOnImageChange(preferences.resetZoomOnImageChange);
     setRecent(preferences.recent);
     await i18n.changeLanguage(resolveAppLanguage(nextLanguage, localeCandidates(nextLocaleInfo)));
   }, [localeInfo]);
@@ -326,7 +383,10 @@ export function App(): React.ReactElement {
     setMetadata(undefined);
     setMetadataError(undefined);
     setPan({ x: 0, y: 0 });
-  }, [itemCount]);
+    if (resetZoomOnImageChange) {
+      setUserZoom(1);
+    }
+  }, [itemCount, resetZoomOnImageChange]);
 
   const nextImage = useCallback(() => moveTo(currentIndex + 1), [currentIndex, moveTo]);
   const previousImage = useCallback(() => moveTo(currentIndex - 1), [currentIndex, moveTo]);
@@ -334,16 +394,12 @@ export function App(): React.ReactElement {
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeState(mode);
     setPan({ x: 0, y: 0 });
-    if (mode === "original") {
-      setZoom(1);
-    } else if (mode === "fit-window" || mode === "fit-width" || mode === "comic-page") {
-      setZoom(calculateFitZoom(mode));
-    }
-  }, [calculateFitZoom]);
+    setUserZoom(1);
+    setZoom(calculateViewZoom(mode, displayedSize, 1));
+  }, [calculateViewZoom, displayedSize]);
 
   const zoomBy = useCallback((factor: number) => {
-    setViewModeState((mode) => (mode === "webtoon" ? mode : "single"));
-    setZoom((value) => clamp(value * factor, MIN_ZOOM, MAX_ZOOM));
+    setUserZoom((value) => clamp(value * factor, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE));
   }, []);
 
   const applyLanguage = useCallback(async (nextLanguage: AppLanguageSetting, nextLocaleInfo = localeInfo) => {
@@ -489,6 +545,7 @@ export function App(): React.ReactElement {
       document.body.classList.remove("is-resizing-panel");
       window.clearTimeout(panelSaveTimerRef.current);
       window.clearTimeout(chromeSaveTimerRef.current);
+      window.clearTimeout(viewerSaveTimerRef.current);
       window.clearTimeout(topChromeHideTimerRef.current);
     };
   }, []);
@@ -581,9 +638,38 @@ export function App(): React.ReactElement {
         })
         .then((nextPreferences) => {
           setRecent(nextPreferences.recent);
-        });
+      });
     }, PANEL_STATE_DELAY_MS);
   }, [preferencesLoaded, topBarMode]);
+
+  useEffect(() => {
+    if (!preferencesLoaded) return;
+    window.clearTimeout(viewerSaveTimerRef.current);
+    viewerSaveTimerRef.current = window.setTimeout(() => {
+      void window.suwol
+        .updateViewerPreferences({
+          viewMode,
+          upscaleSmallImages,
+          interpolationFilter,
+          filterPreset,
+          hdrEnabled,
+          showZoomPercent,
+          resetZoomOnImageChange
+        })
+        .then((nextPreferences) => {
+          setRecent(nextPreferences.recent);
+        });
+    }, PANEL_STATE_DELAY_MS);
+  }, [
+    filterPreset,
+    hdrEnabled,
+    interpolationFilter,
+    preferencesLoaded,
+    resetZoomOnImageChange,
+    showZoomPercent,
+    upscaleSmallImages,
+    viewMode
+  ]);
 
   useEffect(() => {
     const requestId = metadataRequestRef.current + 1;
@@ -635,20 +721,16 @@ export function App(): React.ReactElement {
   }, [currentItem, rightPanelVisible, t]);
 
   useEffect(() => {
-    if (viewMode === "fit-window" || viewMode === "fit-width" || viewMode === "comic-page") {
-      setZoom(calculateFitZoom(viewMode));
-    }
-  }, [calculateFitZoom, displayedSize, viewMode]);
+    setZoom(calculateViewZoom(viewMode));
+  }, [calculateViewZoom, displayedSize, userZoom, viewMode]);
 
   useEffect(() => {
     const handleResize = () => {
-      if (viewMode === "fit-window" || viewMode === "fit-width" || viewMode === "comic-page") {
-        setZoom(calculateFitZoom(viewMode));
-      }
+      setZoom(calculateViewZoom(viewMode));
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [calculateFitZoom, viewMode]);
+  }, [calculateViewZoom, viewMode]);
 
   const toggleFullscreen = useCallback(() => {
     void window.suwol
@@ -859,6 +941,10 @@ export function App(): React.ReactElement {
     });
   }, [t]);
 
+  const togglePixelMode = useCallback(() => {
+    setInterpolationFilter((value) => (value === "nearest" ? "bilinear" : "nearest"));
+  }, []);
+
   const applyUpdateResult = useCallback((result: Awaited<ReturnType<typeof window.suwol.checkForUpdates>>) => {
     if (result.ok) {
       setUpdateStatus(result.data);
@@ -914,6 +1000,25 @@ export function App(): React.ReactElement {
   const displayTransform = {
     transform: `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg) scaleX(${flipped ? -1 : 1}) scale(${zoom})`
   };
+  const imageClassName = [
+    "viewer-image",
+    imageRenderingClass(interpolationFilter),
+    filterPresetClass(filterPreset),
+    hdrEnabled ? "hdr-enabled" : undefined
+  ].filter(Boolean).join(" ");
+  const mainImageClassName = `main-image ${imageClassName}`;
+  const twoPageImageClassName = `two-page-image ${imageClassName}`;
+  const webtoonImageClassName = `webtoon-image ${imageClassName}`;
+  const zoomPercent = Math.round(zoom * 100);
+  const viewerPreferences: ViewerPreferences = {
+    viewMode,
+    upscaleSmallImages,
+    interpolationFilter,
+    filterPreset,
+    hdrEnabled,
+    showZoomPercent,
+    resetZoomOnImageChange
+  };
 
   const statusResolution = displayedSize ? `${displayedSize.width} x ${displayedSize.height}` : t("common.unknown");
   const topBarVisible = topBarMode === "always" || topBarAutoVisible;
@@ -960,7 +1065,7 @@ export function App(): React.ReactElement {
             <span>{t("toolbar.openFolder")}</span>
           </button>
           <select
-            aria-label={t("viewer.fitWindow")}
+            aria-label={t("viewer.viewMode")}
             className="select-control"
             value={viewMode}
             onChange={(event) => setViewMode(event.target.value as ViewMode)}
@@ -1017,6 +1122,16 @@ export function App(): React.ReactElement {
           <button className="icon-button" onClick={() => setViewMode("webtoon")} disabled={!currentItem} title={t("toolbar.webtoonScroll")}>
             <Rows3 size={18} />
           </button>
+          <button
+            aria-pressed={interpolationFilter === "nearest"}
+            className={`icon-button ${interpolationFilter === "nearest" ? "active" : ""}`}
+            onClick={togglePixelMode}
+            disabled={!currentItem}
+            title={t("viewer.pixelMode")}
+          >
+            <Scan size={18} />
+          </button>
+          {showZoomPercent && <span className="zoom-chip" title={t("viewer.zoomPercent", { percent: zoomPercent })}>{zoomPercent}%</span>}
           <button
             aria-pressed={fullscreen}
             className={`icon-button ${fullscreen ? "active" : ""}`}
@@ -1091,9 +1206,9 @@ export function App(): React.ReactElement {
             </div>
           )}
 
-          {currentItem && viewMode !== "webtoon" && (
+          {currentItem && viewMode !== "webtoon" && !isTwoPageMode(viewMode) && (
             <img
-              className="main-image"
+              className={mainImageClassName}
               src={currentItem.displayUrl}
               alt={currentItem.name}
               draggable={false}
@@ -1104,19 +1219,41 @@ export function App(): React.ReactElement {
                   height: event.currentTarget.naturalHeight
                 };
                 setImageSize(nextSize);
-                if (viewMode === "fit-window" || viewMode === "fit-width" || viewMode === "comic-page") {
-                  setZoom(calculateFitZoom(viewMode, nextSize));
-                }
+                setZoom(calculateViewZoom(viewMode, nextSize));
               }}
             />
           )}
 
-          {currentItem && viewMode === "webtoon" && (
-            <div className="webtoon-strip" style={{ "--webtoon-zoom": String(zoom) } as React.CSSProperties}>
-              {items.map((item) => (
+          {currentItem && isTwoPageMode(viewMode) && (
+            <div className="two-page-spread" style={displayTransform}>
+              {twoPageItems.map((item) => (
                 <img
                   key={item.id}
-                  className={`webtoon-image ${item.index === currentIndex ? "active" : ""}`}
+                  className={twoPageImageClassName}
+                  src={item.displayUrl}
+                  alt={item.name}
+                  draggable={false}
+                  loading={item.id === currentItem.id ? "eager" : "lazy"}
+                  onLoad={(event) => {
+                    if (item.id !== currentItem.id) return;
+                    const nextSize = {
+                      width: event.currentTarget.naturalWidth,
+                      height: event.currentTarget.naturalHeight
+                    };
+                    setImageSize(nextSize);
+                    setZoom(calculateViewZoom(viewMode, nextSize));
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          {currentItem && viewMode === "webtoon" && (
+            <div className="webtoon-strip" style={{ "--webtoon-zoom": String(zoom) } as React.CSSProperties}>
+              {webtoonItems.map((item) => (
+                <img
+                  key={item.id}
+                  className={`${webtoonImageClassName} ${item.index === currentIndex ? "active" : ""}`}
                   src={item.displayUrl}
                   alt={item.name}
                   draggable={false}
@@ -1165,6 +1302,7 @@ export function App(): React.ReactElement {
               runtimeInfo={runtimeInfo}
               topBarMode={topBarMode}
               updateStatus={updateStatus}
+              viewerPreferences={viewerPreferences}
               onCleanupThumbnailCache={cleanupThumbnailCache}
               onClearThumbnailCache={clearThumbnailCache}
               onCheckForUpdates={checkForUpdates}
@@ -1179,6 +1317,13 @@ export function App(): React.ReactElement {
               onRestartInSafeMode={restartInSafeMode}
               onSetUpdateStartupCheck={setUpdateStartupCheck}
               onSetTopBarMode={setTopBarMode}
+              onSetFilterPreset={setFilterPreset}
+              onSetHdrEnabled={setHdrEnabled}
+              onSetInterpolationFilter={setInterpolationFilter}
+              onSetResetZoomOnImageChange={setResetZoomOnImageChange}
+              onSetShowZoomPercent={setShowZoomPercent}
+              onSetUpscaleSmallImages={setUpscaleSmallImages}
+              onSetViewMode={setViewMode}
               onToggleLeftPanel={() => setLeftPanelVisible((value) => !value)}
               onToggleRightPanel={() => setRightPanelVisible((value) => !value)}
             />
@@ -1191,7 +1336,7 @@ export function App(): React.ReactElement {
       >
         <span className="status-file">{currentItem?.name ?? t("common.noFileSelected")}</span>
         <span>{statusResolution}</span>
-        <span>{Math.round(zoom * 100)}%</span>
+        {showZoomPercent && <span>{zoomPercent}%</span>}
         <span>
           {itemCount > 0 ? currentIndex + 1 : 0} / {itemCount}
         </span>
@@ -1209,6 +1354,7 @@ function SettingsPanel({
   runtimeInfo,
   topBarMode,
   updateStatus,
+  viewerPreferences,
   onCleanupThumbnailCache,
   onClearThumbnailCache,
   onCheckForUpdates,
@@ -1223,6 +1369,13 @@ function SettingsPanel({
   onRestartInSafeMode,
   onSetUpdateStartupCheck,
   onSetTopBarMode,
+  onSetFilterPreset,
+  onSetHdrEnabled,
+  onSetInterpolationFilter,
+  onSetResetZoomOnImageChange,
+  onSetShowZoomPercent,
+  onSetUpscaleSmallImages,
+  onSetViewMode,
   onToggleLeftPanel,
   onToggleRightPanel
 }: {
@@ -1233,6 +1386,7 @@ function SettingsPanel({
   runtimeInfo?: RuntimeInfo;
   topBarMode: ChromeBarMode;
   updateStatus?: UpdateState;
+  viewerPreferences: ViewerPreferences;
   onCleanupThumbnailCache: () => void;
   onClearThumbnailCache: () => void;
   onCheckForUpdates: () => void;
@@ -1247,6 +1401,13 @@ function SettingsPanel({
   onRestartInSafeMode: () => void;
   onSetUpdateStartupCheck: (enabled: boolean) => void;
   onSetTopBarMode: (mode: ChromeBarMode) => void;
+  onSetFilterPreset: (preset: ImageFilterPreset) => void;
+  onSetHdrEnabled: (enabled: boolean) => void;
+  onSetInterpolationFilter: (filter: InterpolationFilter) => void;
+  onSetResetZoomOnImageChange: (enabled: boolean) => void;
+  onSetShowZoomPercent: (enabled: boolean) => void;
+  onSetUpscaleSmallImages: (enabled: boolean) => void;
+  onSetViewMode: (mode: ViewMode) => void;
   onToggleLeftPanel: () => void;
   onToggleRightPanel: () => void;
 }): React.ReactElement {
@@ -1335,6 +1496,84 @@ function SettingsPanel({
         <RotateCcw size={15} />
         <span>{t("settings.resetPanelSizes")}</span>
       </button>
+
+      <div className="subheading">{t("settings.viewer")}</div>
+      <label className="settings-field">
+        <span>{t("viewer.viewMode")}</span>
+        <select
+          className="select-control settings-select"
+          value={viewerPreferences.viewMode}
+          onChange={(event) => onSetViewMode(event.currentTarget.value as ViewMode)}
+        >
+          {viewModeOptions.map((value) => (
+            <option key={value} value={value}>
+              {t(viewModeLabelKeys[value])}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="settings-check">
+        <input
+          type="checkbox"
+          checked={viewerPreferences.upscaleSmallImages}
+          onChange={(event) => onSetUpscaleSmallImages(event.currentTarget.checked)}
+        />
+        <span>{t("viewer.upscaleSmallImages")}</span>
+      </label>
+      <label className="settings-check">
+        <input
+          type="checkbox"
+          checked={viewerPreferences.showZoomPercent}
+          onChange={(event) => onSetShowZoomPercent(event.currentTarget.checked)}
+        />
+        <span>{t("viewer.showZoomPercent")}</span>
+      </label>
+      <label className="settings-check">
+        <input
+          type="checkbox"
+          checked={viewerPreferences.resetZoomOnImageChange}
+          onChange={(event) => onSetResetZoomOnImageChange(event.currentTarget.checked)}
+        />
+        <span>{t("viewer.resetZoomOnImageChange")}</span>
+      </label>
+      <label className="settings-check">
+        <input
+          type="checkbox"
+          checked={viewerPreferences.hdrEnabled}
+          onChange={(event) => onSetHdrEnabled(event.currentTarget.checked)}
+        />
+        <span>{t("viewer.hdrViewing")}</span>
+      </label>
+      <p className="settings-note">{t("viewer.hdrViewingNote")}</p>
+      <label className="settings-field">
+        <span>{t("viewer.filterPreset")}</span>
+        <select
+          className="select-control settings-select"
+          value={viewerPreferences.filterPreset}
+          onChange={(event) => onSetFilterPreset(event.currentTarget.value as ImageFilterPreset)}
+        >
+          {filterPresetOptions.map((value) => (
+            <option key={value} value={value}>
+              {t(filterPresetLabelKeys[value])}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="settings-field">
+        <span>{t("viewer.interpolationFilter")}</span>
+        <select
+          className="select-control settings-select"
+          value={viewerPreferences.interpolationFilter}
+          onChange={(event) => onSetInterpolationFilter(event.currentTarget.value as InterpolationFilter)}
+        >
+          {interpolationOptions.map((value) => (
+            <option key={value} value={value}>
+              {t(interpolationLabelKeys[value])}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="settings-note">{t("viewer.interpolationFallbackNote")}</p>
 
       <div className="subheading">{t("settings.maintenance")}</div>
       <p className="settings-note">{t("settings.logsPrivacyNote")}</p>

@@ -21,6 +21,7 @@ describe("release policy", () => {
     expect(IPC_CHANNELS.restartInSafeMode).toBe("app:restart-in-safe-mode");
     expect(IPC_CHANNELS.writeRendererLog).toBe("app:write-renderer-log");
     expect(IPC_CHANNELS.updateUpdatePreferences).toBe("update:setPreferences");
+    expect(IPC_CHANNELS.updateViewerPreferences).toBe("settings:update-viewer-preferences");
     expect(IPC_CHANNELS.getUpdateStatus).toBe("update:getStatus");
     expect(IPC_CHANNELS.checkForUpdates).toBe("update:check");
     expect(IPC_CHANNELS.downloadUpdate).toBe("update:download");

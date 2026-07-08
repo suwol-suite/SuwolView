@@ -191,6 +191,22 @@ top toolbar auto-hide setting is also saved and restored.
 Viewer text and metadata labels are not drag-selectable by default; use the
 copy buttons for values that are intended to be copied.
 
+## Viewer Options
+
+SuwolView includes viewer options for:
+
+- Original, fit window, fit width, and fit height display
+- Smart two-page left-to-right and right-to-left modes
+- Webtoon view
+- Upscale small images option
+- Zoom percentage display
+- Interpolation filter, including pixelated mode
+- Filter presets
+- Experimental HDR toggle
+
+Advanced interpolation filters may fall back depending on the renderer backend.
+HDR depends on OS, display, browser/Electron support, and image format.
+
 ## Recovery And Diagnostics
 
 SuwolView writes best-effort diagnostic logs under the app user data directory:

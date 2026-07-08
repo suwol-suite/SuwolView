@@ -4,7 +4,17 @@ export type ThemeMode = "dark" | "light";
 export type ChromeBarMode = "auto" | "always";
 export type SourceKind = "folder" | "archive" | "file";
 export type SupportLevel = "native" | "converted" | "experimental" | "external";
-export type ViewMode = "single" | "fit-window" | "fit-width" | "original" | "webtoon" | "comic-page";
+export type ImageViewMode =
+  | "original"
+  | "fit-window"
+  | "fit-width"
+  | "fit-height"
+  | "smart-two-page-left-to-right"
+  | "smart-two-page-right-to-left"
+  | "webtoon";
+export type ViewMode = ImageViewMode;
+export type ImageFilterPreset = "none" | "smooth" | "extra-smooth" | "sharp";
+export type InterpolationFilter = "nearest" | "bilinear" | "bicubic" | "lanczos";
 
 export type { AppLanguageSetting, LocaleInfo };
 
@@ -67,6 +77,16 @@ export interface UpdatePreferences {
   checkForUpdatesOnStartup: boolean;
 }
 
+export interface ViewerPreferences {
+  viewMode: ImageViewMode;
+  upscaleSmallImages: boolean;
+  interpolationFilter: InterpolationFilter;
+  filterPreset: ImageFilterPreset;
+  hdrEnabled: boolean;
+  showZoomPercent: boolean;
+  resetZoomOnImageChange: boolean;
+}
+
 export type UpdateStatus =
   | "idle"
   | "unsupported"
@@ -90,7 +110,7 @@ export interface UpdateState {
   progressPercent?: number;
 }
 
-export interface Preferences extends PanelPreferences, ChromePreferences, UpdatePreferences {
+export interface Preferences extends PanelPreferences, ChromePreferences, UpdatePreferences, ViewerPreferences {
   theme: ThemeMode;
   language: AppLanguageSetting;
   recent: RecentSource[];
@@ -169,6 +189,7 @@ export interface SuwolApi {
   updatePanelPreferences: (state: Partial<PanelPreferences>) => Promise<Preferences>;
   updateChromePreferences: (state: Partial<ChromePreferences>) => Promise<Preferences>;
   updateUpdatePreferences: (state: Partial<UpdatePreferences>) => Promise<Preferences>;
+  updateViewerPreferences: (state: Partial<ViewerPreferences>) => Promise<Preferences>;
   toggleFullscreen: () => Promise<boolean>;
   setFullscreen: (fullscreen: boolean) => Promise<boolean>;
   getFullscreenState: () => Promise<boolean>;

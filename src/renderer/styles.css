@@ -196,6 +196,21 @@ button {
   max-width: 168px;
 }
 
+.zoom-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--button);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .workspace {
   display: grid;
   min-height: 0;
@@ -286,15 +301,58 @@ button {
   cursor: grabbing;
 }
 
+.viewer-image {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.viewer-image.interpolation-nearest {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.viewer-image.interpolation-bilinear,
+.viewer-image.interpolation-bicubic,
+.viewer-image.interpolation-lanczos {
+  image-rendering: auto;
+}
+
+.viewer-image.filter-none {
+  filter: none;
+}
+
+.viewer-image.filter-smooth,
+.viewer-image.filter-extra-smooth {
+  filter: none;
+}
+
+.viewer-image.filter-sharp {
+  filter: contrast(1.03) saturate(1.02);
+}
+
 .main-image {
   display: block;
   max-width: none;
   max-height: none;
   transform-origin: center center;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-user-drag: none;
   will-change: transform;
+  box-shadow: 0 18px 50px var(--shadow);
+}
+
+.two-page-spread {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.two-page-image {
+  display: block;
+  max-width: none;
+  max-height: none;
   box-shadow: 0 18px 50px var(--shadow);
 }
 
@@ -314,9 +372,6 @@ button {
   height: auto;
   margin: 0 auto;
   background: #000;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-user-drag: none;
   box-shadow: 0 10px 32px var(--shadow);
 }
 
@@ -443,6 +498,20 @@ body.is-resizing-panel {
   gap: 8px;
   color: var(--text);
   font-size: 13px;
+}
+
+.settings-field {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) minmax(136px, 1.15fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-select {
+  width: 100%;
+  min-width: 0;
 }
 
 .info-row {

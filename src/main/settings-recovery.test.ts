@@ -35,6 +35,12 @@ describe("settings recovery", () => {
         theme: "neon",
         language: "zz",
         topBarMode: "floating",
+        viewMode: "panorama",
+        interpolationFilter: "magic",
+        filterPreset: "glow",
+        hdrEnabled: "yes",
+        showZoomPercent: "sometimes",
+        resetZoomOnImageChange: "never",
         leftPanelVisible: "yes",
         leftPanelWidth: 99999,
         rightPanelWidth: -1,
@@ -49,6 +55,12 @@ describe("settings recovery", () => {
     expect(preferences.theme).toBe("dark");
     expect(preferences.language).toBe("system");
     expect(preferences.topBarMode).toBe("auto");
+    expect(preferences.viewMode).toBe("fit-window");
+    expect(preferences.interpolationFilter).toBe("bilinear");
+    expect(preferences.filterPreset).toBe("smooth");
+    expect(preferences.hdrEnabled).toBe(false);
+    expect(preferences.showZoomPercent).toBe(true);
+    expect(preferences.resetZoomOnImageChange).toBe(true);
     expect(preferences.leftPanelVisible).toBe(false);
     expect(preferences.leftPanelWidth).toBe(520);
     expect(preferences.rightPanelWidth).toBe(240);
@@ -76,5 +88,32 @@ describe("settings recovery", () => {
     const reset = await store.reset();
     expect(reset.theme).toBe("dark");
     expect(JSON.parse(await readFile(path.join(tempDir, "settings.json"), "utf8")).theme).toBe("dark");
+  });
+
+  it("persists viewer preference changes", async () => {
+    const store = new SettingsStore(tempDir);
+    await store.load();
+    const preferences = await store.updateViewerPreferences({
+      viewMode: "fit-height",
+      upscaleSmallImages: true,
+      interpolationFilter: "nearest",
+      filterPreset: "sharp",
+      hdrEnabled: true,
+      showZoomPercent: false,
+      resetZoomOnImageChange: false
+    });
+
+    expect(preferences).toMatchObject({
+      viewMode: "fit-height",
+      upscaleSmallImages: true,
+      interpolationFilter: "nearest",
+      filterPreset: "sharp",
+      hdrEnabled: true,
+      showZoomPercent: false,
+      resetZoomOnImageChange: false
+    });
+    const saved = JSON.parse(await readFile(path.join(tempDir, "settings.json"), "utf8")) as Record<string, unknown>;
+    expect(saved.viewMode).toBe("fit-height");
+    expect(saved.interpolationFilter).toBe("nearest");
   });
 });

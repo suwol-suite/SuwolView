@@ -18,7 +18,8 @@ import type {
   SuwolApi,
   ThemeMode,
   UpdatePreferences,
-  UpdateState
+  UpdateState,
+  ViewerPreferences
 } from "../shared/types";
 
 const IPC_CHANNELS = {
@@ -33,6 +34,7 @@ const IPC_CHANNELS = {
   setTheme: "suwol:set-theme",
   updatePanelPreferences: "settings:update-panel-preferences",
   updateChromePreferences: "settings:update-chrome-preferences",
+  updateViewerPreferences: "settings:update-viewer-preferences",
   updateUpdatePreferences: "update:setPreferences",
   toggleFullscreen: "app:toggleFullscreen",
   setFullscreen: "app:setFullscreen",
@@ -134,6 +136,7 @@ const api: SuwolApi = {
   updatePanelPreferences: (state: Partial<PanelPreferences>) => invokeIpc<Preferences>(IPC_CHANNELS.updatePanelPreferences, state),
   updateChromePreferences: (state: Partial<ChromePreferences>) => invokeIpc<Preferences>(IPC_CHANNELS.updateChromePreferences, state),
   updateUpdatePreferences: (state: Partial<UpdatePreferences>) => invokeIpc<Preferences>(IPC_CHANNELS.updateUpdatePreferences, state),
+  updateViewerPreferences: (state: Partial<ViewerPreferences>) => invokeIpc<Preferences>(IPC_CHANNELS.updateViewerPreferences, state),
   toggleFullscreen: () => invokeIpc<boolean>(IPC_CHANNELS.toggleFullscreen),
   setFullscreen: (fullscreen: boolean) => invokeIpc<boolean>(IPC_CHANNELS.setFullscreen, fullscreen),
   getFullscreenState: () => invokeIpc<boolean>(IPC_CHANNELS.getFullscreenState),

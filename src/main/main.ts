@@ -16,7 +16,8 @@ import type {
   PanelPreferences,
   Preferences,
   ThemeMode,
-  UpdatePreferences
+  UpdatePreferences,
+  ViewerPreferences
 } from "../shared/types";
 import { CachePaths } from "./cache";
 import { DecoderLayer } from "./decoder";
@@ -407,6 +408,10 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager, u
 
   ipcMain.handle(IPC_CHANNELS.updateChromePreferences, async (_event, state: Partial<ChromePreferences>) => {
     return settings.updateChromePreferences(state);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.updateViewerPreferences, async (_event, state: Partial<ViewerPreferences>) => {
+    return settings.updateViewerPreferences(state);
   });
 
   ipcMain.handle(IPC_CHANNELS.updateUpdatePreferences, async (_event, state: Partial<UpdatePreferences>) => {

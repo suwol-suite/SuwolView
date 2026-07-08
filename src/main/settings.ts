@@ -3,6 +3,7 @@ import path from "node:path";
 import { normalizeChromePreferences } from "../shared/chromePreferences";
 import { normalizeLanguagePreference } from "../shared/i18n/languages";
 import { normalizePanelPreferences } from "../shared/panelPreferences";
+import { normalizeViewerPreferences } from "../shared/viewerPreferences";
 import type {
   AppLanguageSetting,
   ChromePreferences,
@@ -11,7 +12,8 @@ import type {
   Preferences,
   RecentSource,
   ThemeMode,
-  UpdatePreferences
+  UpdatePreferences,
+  ViewerPreferences
 } from "../shared/types";
 import { logMain } from "./logging";
 
@@ -24,6 +26,7 @@ export function defaultPreferences(): Preferences {
     checkForUpdatesOnStartup: false,
     ...normalizeChromePreferences(),
     ...normalizePanelPreferences(),
+    ...normalizeViewerPreferences(),
     recent: []
   };
 }
@@ -91,6 +94,15 @@ export class SettingsStore {
           leftPanelWidth: data.leftPanelWidth,
           rightPanelWidth: data.rightPanelWidth
         }),
+        ...normalizeViewerPreferences({
+          viewMode: data.viewMode,
+          upscaleSmallImages: data.upscaleSmallImages,
+          interpolationFilter: data.interpolationFilter,
+          filterPreset: data.filterPreset,
+          hdrEnabled: data.hdrEnabled,
+          showZoomPercent: data.showZoomPercent,
+          resetZoomOnImageChange: data.resetZoomOnImageChange
+        }),
         recent: Array.isArray(data.recent) ? data.recent.slice(0, MAX_RECENT) : []
       };
     } catch (error) {
@@ -156,6 +168,18 @@ export class SettingsStore {
       ...normalizeUpdatePreferences({
         ...this.preferences,
         ...updatePreferences
+      })
+    };
+    await this.save();
+    return this.get();
+  }
+
+  async updateViewerPreferences(viewerPreferences: Partial<ViewerPreferences>): Promise<Preferences> {
+    this.preferences = {
+      ...this.preferences,
+      ...normalizeViewerPreferences({
+        ...this.preferences,
+        ...viewerPreferences
       })
     };
     await this.save();
