@@ -1,11 +1,32 @@
 import { spawn } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 
 const nodeCommand = process.execPath;
-const devServerUrl = "http://127.0.0.1:5173";
 const viteCli = path.join(process.cwd(), "node_modules", "vite", "bin", "vite.js");
 const electronCli = path.join(process.cwd(), "node_modules", "electron", "cli.js");
+
+async function canListen(port, host) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, host, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+async function isPortAvailable(port) {
+  return (await canListen(port, "127.0.0.1")) && (await canListen(port, "0.0.0.0"));
+}
+
+async function findAvailablePort(startPort = 5173) {
+  for (let port = startPort; port < startPort + 100; port += 1) {
+    if (await isPortAvailable(port)) return port;
+  }
+  throw new Error(`No available Vite port found between ${startPort} and ${startPort + 99}.`);
+}
 
 function spawnProcess(command, args, options = {}) {
   return spawn(command, args, {
@@ -51,7 +72,16 @@ function waitForServer(url, timeoutMs = 30000) {
 
 await run(nodeCommand, [viteCli, "build", "--config", "vite.main.config.ts"]);
 
-const vite = spawnProcess(nodeCommand, [viteCli, "--host", "127.0.0.1", "--port", "5173"]);
+const devPort = await findAvailablePort();
+const devServerUrl = `http://127.0.0.1:${devPort}`;
+const vite = spawnProcess(nodeCommand, [
+  viteCli,
+  "--host",
+  "127.0.0.1",
+  "--port",
+  String(devPort),
+  "--strictPort"
+]);
 
 try {
   await waitForServer(devServerUrl);
