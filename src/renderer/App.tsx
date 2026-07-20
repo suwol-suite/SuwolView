@@ -67,6 +67,7 @@ import type {
   RecentSource,
   RuntimeInfo,
   ThemeMode,
+  UpdateCheckProgressEvent,
   UpdateState,
   ViewerPreferences,
   ViewMode
@@ -74,6 +75,7 @@ import type {
 import { filterPresetClass, imageRenderingClass, computeImageScale, MAX_IMAGE_SCALE, MIN_IMAGE_SCALE } from "./viewerLayout";
 import { consumeWheelPage, INITIAL_WHEEL_ACCUMULATOR } from "./navigationInput";
 import { isTwoPageMode, selectTwoPageItems, selectWebtoonItems } from "./twoPageMode";
+import { elapsedSecondsSince, isUpdateCheckActive, updateElapsed, UPDATE_CHECK_UI_TIMEOUT_MS } from "./updateProgress";
 
 interface ImageSize {
   width: number;
@@ -97,8 +99,6 @@ interface PanelResizeState {
 
 const PANEL_STATE_DELAY_MS = 250;
 const METADATA_REQUEST_DELAY_MS = 250;
-const UPDATE_CHECK_UI_TIMEOUT_MS = 25_000;
-
 const viewModeOptions: readonly ViewMode[] = [
   "original",
   "fit-window",
@@ -287,6 +287,8 @@ export function App(): React.ReactElement {
   const externalOpenRequestRef = useRef(0);
   const metadataRequestRef = useRef(0);
   const updateCheckRequestRef = useRef(0);
+  const updateCheckTimeoutRef = useRef<number | undefined>(undefined);
+  const latestUpdateProgressRequestRef = useRef<string | undefined>(undefined);
   const currentItemIdRef = useRef<string | undefined>(undefined);
   const wheelAccumulatorRef = useRef(INITIAL_WHEEL_ACCUMULATOR);
 
@@ -664,6 +666,58 @@ export function App(): React.ReactElement {
         setPreferencesLoaded(true);
       });
   }, [applyPreferences, t]);
+
+  useEffect(() => {
+    const unsubscribe = window.suwol.onUpdateCheckProgress((event: UpdateCheckProgressEvent) => {
+      const previousRequestId = latestUpdateProgressRequestRef.current;
+      if (previousRequestId !== event.requestId && event.phase !== "starting") return;
+      latestUpdateProgressRequestRef.current = event.requestId;
+      setUpdateStatus((current) => ({
+        ...(current ?? {
+          status: "checking",
+          supported: runtimeInfo?.isPackaged === true,
+          updateAvailable: false,
+          downloaded: false,
+          version: runtimeInfo?.version
+        }),
+        status: event.status ?? (isUpdateCheckActive(event.phase) ? "checking" : current?.status ?? "checking"),
+        requestId: event.requestId,
+        source: event.source,
+        phase: event.phase,
+        startedAt: event.startedAt,
+        elapsedSeconds: elapsedSecondsSince(event.startedAt),
+        messageKey: event.messageKey,
+        releaseLookupStatus: event.releaseStatus,
+        nativeUpdaterStatus: event.nativeUpdaterStatus,
+        updateAvailable: event.updateAvailable ?? current?.updateAvailable ?? false,
+        downloaded: event.downloaded ?? current?.downloaded ?? false,
+        comparison: event.comparison ?? current?.comparison,
+        latestVersion: event.latestVersion ?? current?.latestVersion,
+        lastCheckedAt: event.lastCheckedAt ?? current?.lastCheckedAt,
+        error: event.phase === "starting" || isUpdateCheckActive(event.phase) ? undefined : event.error ?? current?.error
+      }));
+    });
+    return unsubscribe;
+  }, [runtimeInfo?.isPackaged, runtimeInfo?.version]);
+
+  useEffect(() => {
+    if (!preferencesOpen) return;
+    let active = true;
+    void window.suwol.getUpdateStatus().then((current) => {
+      if (active) setUpdateStatus(current);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [preferencesOpen]);
+
+  useEffect(() => {
+    if (!preferencesOpen || !isUpdateCheckActive(updateStatus?.phase)) return;
+    const intervalId = window.setInterval(() => {
+      setUpdateStatus((current) => updateElapsed(current));
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [preferencesOpen, updateStatus?.phase, updateStatus?.startedAt]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1163,24 +1217,16 @@ export function App(): React.ReactElement {
       setError(undefined);
       return;
     }
+    const updatesDisabled = result.code === "UPDATE_DISABLED_DEV" || result.code === "UPDATE_DISABLED_SAFE_MODE" || result.code === "UPDATE_UNSUPPORTED_PLATFORM" || result.code === "UPDATE_UNSUPPORTED_LINUX_PACKAGE";
     setUpdateStatus((current) => ({
-      status: "error",
-      supported: current?.supported ?? false,
-      updateAvailable: current?.updateAvailable ?? false,
-      downloaded: current?.downloaded ?? false,
-      version: current?.version,
-      latestVersion: current?.latestVersion,
-      releaseName: current?.releaseName,
-      comparison: current?.comparison,
-      release: current?.release,
-      lastCheckedAt: current?.lastCheckedAt,
-      autoUpdateSupported: current?.autoUpdateSupported,
-      releaseLookupStatus: current?.releaseLookupStatus,
-      nativeUpdaterStatus: current?.nativeUpdaterStatus,
-      downloadStatus: current?.downloadStatus,
-      installStatus: current?.installStatus,
-      platformPackageAvailable: current?.platformPackageAvailable,
-      manualDownloadUrl: current?.manualDownloadUrl,
+      ...(current ?? { supported: false, updateAvailable: false, downloaded: false }),
+      status: updatesDisabled ? "disabled" : "error",
+      phase: updatesDisabled ? "idle" : current?.phase === "timeout" ? "timeout" : "error",
+      comparison: updatesDisabled ? "disabled" : current?.comparison ?? "error",
+      lastCheckedAt: current?.lastCheckedAt ?? new Date().toISOString(),
+      errorCode: result.code,
+      releaseLookupStatus: updatesDisabled ? "idle" : current?.releaseLookupStatus,
+      nativeUpdaterStatus: updatesDisabled ? "unsupported" : current?.nativeUpdaterStatus,
       error: result
     }));
     setError(translatedErrorMessage(result, t));
@@ -1189,12 +1235,30 @@ export function App(): React.ReactElement {
   const checkForUpdates = useCallback(() => {
     const requestId = updateCheckRequestRef.current + 1;
     updateCheckRequestRef.current = requestId;
-    setUpdateStatus((current) => (current ? { ...current, status: "checking", releaseLookupStatus: "checking", error: undefined } : current));
+    if (updateCheckTimeoutRef.current !== undefined) {
+      window.clearTimeout(updateCheckTimeoutRef.current);
+      updateCheckTimeoutRef.current = undefined;
+    }
+    const startedAt = new Date().toISOString();
+    setUpdateStatus((current) => ({
+      ...(current ?? { supported: runtimeInfo?.isPackaged === true, updateAvailable: false, downloaded: false }),
+      status: "checking",
+      requestId: `renderer-${requestId}`,
+      source: "manual",
+      phase: "starting",
+      startedAt,
+      elapsedSeconds: 0,
+      messageKey: "updates.progress.starting",
+      releaseLookupStatus: "checking",
+      nativeUpdaterStatus: "waiting",
+      error: undefined
+    }));
     let timeoutId: number | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timeoutId = window.setTimeout(() => reject({ code: "UPDATE_CHECK_TIMEOUT", messageKey: "errors.updateCheckTimeout" }), UPDATE_CHECK_UI_TIMEOUT_MS);
+      updateCheckTimeoutRef.current = timeoutId;
     });
-    void Promise.race([window.suwol.checkForUpdates(), timeout])
+    void Promise.race([window.suwol.checkForUpdates("manual"), timeout])
       .then((result) => {
         if (updateCheckRequestRef.current === requestId) applyUpdateResult(result);
       })
@@ -1204,31 +1268,24 @@ export function App(): React.ReactElement {
           ? updateError as AppError
           : { code: "IPC_ERROR", messageKey: "errors.actionFailed" };
         setUpdateStatus((current) => ({
+          ...(current ?? { supported: runtimeInfo?.isPackaged === true, updateAvailable: false, downloaded: false }),
           status: "error",
-          supported: current?.supported ?? false,
-          updateAvailable: current?.updateAvailable ?? false,
-          downloaded: current?.downloaded ?? false,
-          version: current?.version,
-          latestVersion: current?.latestVersion,
-          releaseName: current?.releaseName,
+          phase: appError.code === "UPDATE_CHECK_TIMEOUT" ? "timeout" : "error",
           comparison: "error",
-          release: current?.release,
           lastCheckedAt: new Date().toISOString(),
-          autoUpdateSupported: current?.autoUpdateSupported,
-          releaseLookupStatus: "error",
-          nativeUpdaterStatus: current?.nativeUpdaterStatus,
-          downloadStatus: current?.downloadStatus,
-          installStatus: current?.installStatus,
-          platformPackageAvailable: current?.platformPackageAvailable,
-          manualDownloadUrl: current?.manualDownloadUrl,
+          messageKey: appError.code === "UPDATE_CHECK_TIMEOUT" ? "updates.progress.timeout" : "updates.progress.error",
+          errorCode: appError.code,
+          releaseLookupStatus: appError.code === "UPDATE_CHECK_TIMEOUT" ? "timeout" : "error",
           error: appError
         }));
+        updateCheckRequestRef.current += 1;
         setError(translatedErrorMessage(appError, t));
       })
       .finally(() => {
         if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        if (updateCheckTimeoutRef.current === timeoutId) updateCheckTimeoutRef.current = undefined;
       });
-  }, [applyUpdateResult, t]);
+  }, [applyUpdateResult, runtimeInfo?.isPackaged, t]);
 
   const downloadUpdate = useCallback(() => {
     setUpdateStatus((current) => (current ? { ...current, status: "downloading", error: undefined } : current));
@@ -1240,13 +1297,17 @@ export function App(): React.ReactElement {
 
   const installUpdate = useCallback(() => {
     void window.suwol.installUpdate().then(applyUpdateResult).catch((updateError) => {
-      setUpdateStatus((current) => (current ? { ...current, status: "error", installStatus: "ready", error: updateError } : current));
+      setUpdateStatus((current) => (current ? { ...current, status: "error", installStatus: "error", errorCode: updateError.code, error: updateError } : current));
       setError(translatedErrorMessage(updateError, t));
     });
   }, [applyUpdateResult, t]);
 
   const closePreferences = useCallback(() => {
     updateCheckRequestRef.current += 1;
+    if (updateCheckTimeoutRef.current !== undefined) {
+      window.clearTimeout(updateCheckTimeoutRef.current);
+      updateCheckTimeoutRef.current = undefined;
+    }
     setPreferencesOpen(false);
   }, []);
 
@@ -1805,10 +1866,12 @@ function PreferencesModal({
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<PreferencesTab>("general");
   const updateStatusLabel = t(`updates.status.${updateStatus?.status ?? "idle"}`);
+  const updatePhaseLabel = t(`updates.phase.${updateStatus?.phase ?? "idle"}`);
   const updateError = updateStatus?.error ? translatedErrorMessage(updateStatus.error, t) : undefined;
-  const canCheckForUpdates = runtimeInfo?.isPackaged === true && updateStatus?.status !== "disabled" && updateStatus?.releaseLookupStatus !== "checking" && updateStatus?.nativeUpdaterStatus !== "checking";
-  const canDownloadUpdate = updateStatus?.supported === true && updateStatus.autoUpdateSupported === true && updateStatus.updateAvailable && updateStatus.status !== "downloading";
-  const canInstallUpdate = updateStatus?.supported === true && updateStatus.downloaded;
+  const updateCheckActive = isUpdateCheckActive(updateStatus?.phase) || updateStatus?.status === "checking";
+  const canCheckForUpdates = runtimeInfo?.isPackaged === true && updateStatus?.status !== "disabled" && updateStatus?.status !== "unsupported" && !updateCheckActive;
+  const canDownloadUpdate = updateStatus?.supported === true && updateStatus.autoUpdateSupported === true && updateStatus.updateAvailable && updateStatus.nativeUpdaterStatus === "available" && updateStatus.downloadStatus !== "downloading" && updateStatus.downloadStatus !== "downloaded";
+  const canInstallUpdate = updateStatus?.supported === true && updateStatus.downloadStatus === "downloaded" && updateStatus.installStatus === "ready";
   const showDeveloperUpdateNotes = runtimeInfo?.isPackaged === false;
   const showWindowsFileAssociationControls = isWindowsRuntime(runtimeInfo);
   const showMacFileAssociationInstructions = isMacRuntime(runtimeInfo);
@@ -1987,6 +2050,10 @@ function PreferencesModal({
                 <div className="subheading">{t("settings.updates")}</div>
                 <InfoRow label={t("settings.currentVersion")} value={runtimeInfo?.version ?? t("common.unknown")} />
                 <InfoRow label={t("settings.updateStatus")} value={updateStatusLabel} />
+                <InfoRow label={t("settings.currentPhase")} value={updatePhaseLabel} />
+                {updateStatus?.phase && isUpdateCheckActive(updateStatus.phase) && (
+                  <InfoRow label={t("settings.elapsedTime")} value={t("updates.elapsedSeconds", { count: updateStatus.elapsedSeconds ?? 0 })} />
+                )}
                 {updateStatus?.nativeUpdaterStatus && (
                   <InfoRow label={t("settings.nativeUpdateStatus")} value={t(`updates.nativeStatus.${updateStatus.nativeUpdaterStatus}`)} />
                 )}
@@ -2020,6 +2087,8 @@ function PreferencesModal({
                   </div>
                 )}
                 {updateError && <p className="settings-note">{updateError}</p>}
+                {updateCheckActive && <p aria-live="polite" className="settings-update-progress"><RefreshCw className="spinning" size={15} />{t(updateStatus?.messageKey ?? "updates.progress.starting")} · {t("updates.elapsedSeconds", { count: updateStatus?.elapsedSeconds ?? 0 })} · {t("updates.maxCheckTime")}</p>}
+                {(updateStatus?.phase === "timeout" || updateStatus?.phase === "error") && <p className="settings-note">{t("updates.retryHint")}</p>}
                 <label className="settings-check">
                   <input
                     type="checkbox"
@@ -2039,7 +2108,7 @@ function PreferencesModal({
                 <div className="settings-actions">
                   <button className="panel-command-button" onClick={onCheckForUpdates} disabled={!canCheckForUpdates}>
                     <RefreshCw size={15} />
-                    <span>{t("settings.checkForUpdates")}</span>
+                    <span>{updateStatus?.phase === "timeout" || updateStatus?.phase === "error" ? t("updates.retry") : t("settings.checkForUpdates")}</span>
                   </button>
                   <button className="panel-command-button" onClick={onDownloadUpdate} disabled={!canDownloadUpdate}>
                     <Download size={15} />
@@ -2049,7 +2118,7 @@ function PreferencesModal({
                     <Power size={15} />
                     <span>{t("settings.installAndRestart")}</span>
                   </button>
-                  {updateStatus?.release?.url && (
+                  {runtimeInfo?.isPackaged === true && (updateStatus?.release?.url || updateStatus?.manualDownloadUrl || updateStatus?.phase === "timeout" || updateStatus?.phase === "error" || updateStatus?.updateAvailable) && (
                     <button className="panel-command-button" onClick={onOpenReleases}>
                       <ExternalLink size={15} />
                       <span>{t("settings.openReleasePage")}</span>

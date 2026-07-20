@@ -771,6 +771,24 @@ body.is-resizing-panel {
   line-height: 1.45;
 }
 
+.settings-update-progress {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.spinning {
+  animation: suwol-update-spin 1s linear infinite;
+}
+
+@keyframes suwol-update-spin {
+  to { transform: rotate(360deg); }
+}
+
 .settings-actions {
   display: grid;
   gap: 8px;

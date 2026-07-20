@@ -131,10 +131,20 @@ export type UpdateStatus =
   | "no-release"
   | "error";
 
-export type ReleaseLookupStatus = "idle" | "checking" | "success" | "error";
-export type NativeUpdaterStatus = "idle" | "checking" | "available" | "not-available" | "unsupported" | "timeout" | "error";
-export type UpdateDownloadStatus = "idle" | "downloading" | "downloaded" | "error";
-export type UpdateInstallStatus = "idle" | "ready" | "installing";
+export type UpdateCheckSource = "startup" | "manual";
+export type UpdateCheckPhase =
+  | "idle"
+  | "starting"
+  | "release-lookup"
+  | "release-lookup-complete"
+  | "native-check"
+  | "complete"
+  | "timeout"
+  | "error";
+export type ReleaseLookupStatus = "idle" | "checking" | "success" | "timeout" | "error";
+export type NativeUpdaterStatus = "idle" | "waiting" | "checking" | "available" | "not-available" | "not-required" | "unsupported" | "timeout" | "error";
+export type UpdateDownloadStatus = "idle" | "downloading" | "downloaded" | "timeout" | "error";
+export type UpdateInstallStatus = "idle" | "ready" | "installing" | "error";
 
 export type UpdateComparison = "up-to-date" | "update-available" | "ahead" | "no-release" | "error" | "disabled";
 
@@ -172,6 +182,32 @@ export interface UpdateState {
   installStatus?: UpdateInstallStatus;
   platformPackageAvailable?: boolean;
   manualDownloadUrl?: string;
+  requestId?: string;
+  source?: UpdateCheckSource;
+  phase?: UpdateCheckPhase;
+  startedAt?: string;
+  elapsedSeconds?: number;
+  currentVersion?: string;
+  messageKey?: string;
+  errorCode?: string;
+}
+
+export interface UpdateCheckProgressEvent {
+  requestId: string;
+  source: UpdateCheckSource;
+  phase: UpdateCheckPhase;
+  messageKey: string;
+  startedAt: string;
+  timestamp: string;
+  releaseStatus: ReleaseLookupStatus;
+  nativeUpdaterStatus: NativeUpdaterStatus;
+  status?: UpdateStatus;
+  updateAvailable?: boolean;
+  downloaded?: boolean;
+  comparison?: UpdateComparison;
+  latestVersion?: string;
+  lastCheckedAt?: string;
+  error?: AppError;
 }
 
 export interface Preferences extends PanelPreferences, ChromePreferences, UpdatePreferences, ViewerPreferences {
@@ -277,7 +313,8 @@ export interface SuwolApi {
   rendererReady: () => Promise<void>;
   getMetadata: (itemId: string) => Promise<AppResult<ImageMetadata>>;
   getUpdateStatus: () => Promise<UpdateState>;
-  checkForUpdates: () => Promise<AppResult<UpdateState>>;
+  checkForUpdates: (source?: UpdateCheckSource) => Promise<AppResult<UpdateState>>;
+  onUpdateCheckProgress: (callback: (event: UpdateCheckProgressEvent) => void) => () => void;
   downloadUpdate: () => Promise<AppResult<UpdateState>>;
   installUpdate: () => Promise<AppResult<UpdateState>>;
 }

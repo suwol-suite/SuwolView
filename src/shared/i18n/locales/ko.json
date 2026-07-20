@@ -179,6 +179,8 @@
     "currentVersion": "현재 버전",
     "latestVersion": "최신 버전",
     "updateStatus": "업데이트 상태",
+    "currentPhase": "현재 단계",
+    "elapsedTime": "경과 시간",
     "lastChecked": "마지막 확인 시각",
     "releaseTitle": "릴리즈 제목",
     "publishedDate": "게시일",
@@ -219,8 +221,34 @@
       "error": "오류",
       "no-release": "공개 릴리즈 없음"
     },
+    "phase": {
+      "idle": "대기",
+      "starting": "시작 중",
+      "release-lookup": "최신 릴리즈 조회 중",
+      "release-lookup-complete": "릴리즈 조회 완료",
+      "native-check": "자동 업데이트 확인 중",
+      "complete": "완료",
+      "timeout": "시간 초과",
+      "error": "오류"
+    },
+    "progress": {
+      "idle": "대기 중",
+      "starting": "업데이트 확인 시작",
+      "releaseLookup": "GitHub 릴리즈 확인 중",
+      "releaseLookupComplete": "GitHub 릴리즈 정보를 받았습니다",
+      "nativeCheck": "설치된 패키지의 자동 업데이트 확인 중",
+      "complete": "업데이트 확인 완료",
+      "timeout": "업데이트 확인 시간 초과",
+      "error": "업데이트 확인 실패"
+    },
+    "elapsedSeconds_one": "{{count}}초 경과",
+    "elapsedSeconds_other": "{{count}}초 경과",
+    "maxCheckTime": "최대 25초",
+    "retry": "다시 시도",
+    "retryHint": "다시 시도하거나 릴리즈 페이지를 열어 수동으로 다운로드하세요.",
     "nativeStatus": {
       "idle": "실행하지 않음",
+      "waiting": "대기 중",
       "checking": "확인 중",
       "available": "사용 가능",
       "not-available": "사용할 수 없음",

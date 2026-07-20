@@ -18,6 +18,11 @@ import type {
   SuwolApi,
   ThemeMode,
   UpdatePreferences,
+  UpdateCheckProgressEvent,
+  UpdateCheckPhase,
+  UpdateCheckSource,
+  ReleaseLookupStatus,
+  NativeUpdaterStatus,
   UpdateState,
   ViewerPreferences
 } from "../shared/types";
@@ -58,6 +63,7 @@ const IPC_CHANNELS = {
   getMetadata: "suwol:get-metadata",
   getUpdateStatus: "update:getStatus",
   checkForUpdates: "update:check",
+  updateProgress: "update:progress",
   downloadUpdate: "update:download",
   installUpdate: "update:install"
 } as const satisfies typeof SharedIpcChannels;
@@ -72,6 +78,24 @@ function isAppError(value: unknown): value is AppError {
     typeof value.code === "string" &&
     typeof value.messageKey === "string" &&
     (value.details === undefined || typeof value.details === "string")
+  );
+}
+
+const updatePhases: readonly UpdateCheckPhase[] = ["idle", "starting", "release-lookup", "release-lookup-complete", "native-check", "complete", "timeout", "error"];
+const releaseStatuses: readonly ReleaseLookupStatus[] = ["idle", "checking", "success", "timeout", "error"];
+const nativeStatuses: readonly NativeUpdaterStatus[] = ["idle", "waiting", "checking", "available", "not-available", "not-required", "unsupported", "timeout", "error"];
+
+function isUpdateCheckProgressEvent(value: unknown): value is UpdateCheckProgressEvent {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.requestId === "string" &&
+    (value.source === "startup" || value.source === "manual") &&
+    typeof value.phase === "string" && updatePhases.includes(value.phase as UpdateCheckPhase) &&
+    typeof value.messageKey === "string" &&
+    typeof value.startedAt === "string" &&
+    typeof value.timestamp === "string" &&
+    typeof value.releaseStatus === "string" && releaseStatuses.includes(value.releaseStatus as ReleaseLookupStatus) &&
+    typeof value.nativeUpdaterStatus === "string" && nativeStatuses.includes(value.nativeUpdaterStatus as NativeUpdaterStatus)
   );
 }
 
@@ -156,7 +180,14 @@ const api: SuwolApi = {
   rendererReady: () => invokeIpc<void>(IPC_CHANNELS.rendererReady),
   getMetadata: (itemId: string) => invokeIpc<AppResult<ImageMetadata>>(IPC_CHANNELS.getMetadata, itemId),
   getUpdateStatus: () => invokeIpc<UpdateState>(IPC_CHANNELS.getUpdateStatus),
-  checkForUpdates: () => invokeIpc<AppResult<UpdateState>>(IPC_CHANNELS.checkForUpdates),
+  checkForUpdates: (source?: UpdateCheckSource) => invokeIpc<AppResult<UpdateState>>(IPC_CHANNELS.checkForUpdates, source),
+  onUpdateCheckProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (isUpdateCheckProgressEvent(payload)) callback(payload);
+    };
+    ipcRenderer.on(IPC_CHANNELS.updateProgress, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.updateProgress, listener);
+  },
   downloadUpdate: () => invokeIpc<AppResult<UpdateState>>(IPC_CHANNELS.downloadUpdate),
   installUpdate: () => invokeIpc<AppResult<UpdateState>>(IPC_CHANNELS.installUpdate)
 };

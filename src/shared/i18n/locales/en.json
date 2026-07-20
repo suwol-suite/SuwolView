@@ -179,6 +179,8 @@
     "currentVersion": "Current version",
     "latestVersion": "Latest version",
     "updateStatus": "Update status",
+    "currentPhase": "Current phase",
+    "elapsedTime": "Elapsed",
     "lastChecked": "Last checked",
     "releaseTitle": "Release title",
     "publishedDate": "Published",
@@ -219,8 +221,34 @@
       "error": "Error",
       "no-release": "No public release"
     },
+    "phase": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "release-lookup": "Looking up the latest release",
+      "release-lookup-complete": "Release lookup complete",
+      "native-check": "Checking automatic updater",
+      "complete": "Complete",
+      "timeout": "Timed out",
+      "error": "Error"
+    },
+    "progress": {
+      "idle": "Waiting",
+      "starting": "Starting update check",
+      "releaseLookup": "Checking the GitHub release",
+      "releaseLookupComplete": "GitHub release information received",
+      "nativeCheck": "Checking the installed package updater",
+      "complete": "Update check complete",
+      "timeout": "Update check timed out",
+      "error": "Update check failed"
+    },
+    "elapsedSeconds_one": "{{count}} second elapsed",
+    "elapsedSeconds_other": "{{count}} seconds elapsed",
+    "maxCheckTime": "maximum 25 seconds",
+    "retry": "Retry",
+    "retryHint": "You can retry, or open the release page for a manual download.",
     "nativeStatus": {
       "idle": "Not run",
+      "waiting": "Waiting",
       "checking": "Checking",
       "available": "Available",
       "not-available": "Not available",

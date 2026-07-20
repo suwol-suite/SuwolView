@@ -16,6 +16,7 @@ import type {
   PanelPreferences,
   Preferences,
   ThemeMode,
+  UpdateCheckSource,
   UpdatePreferences,
   ViewerPreferences
 } from "../shared/types";
@@ -565,7 +566,10 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager, u
 
   ipcMain.handle(IPC_CHANNELS.getUpdateStatus, () => updates.getStatus());
 
-  ipcMain.handle(IPC_CHANNELS.checkForUpdates, () => updates.checkForUpdates());
+  ipcMain.handle(IPC_CHANNELS.checkForUpdates, (_event, source: unknown) => {
+    const checkSource: UpdateCheckSource = source === "startup" ? "startup" : "manual";
+    return updates.checkForUpdates(checkSource);
+  });
 
   ipcMain.handle(IPC_CHANNELS.downloadUpdate, () => updates.downloadUpdate());
 
@@ -658,7 +662,12 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
       safeMode,
       platform: process.platform,
       appImagePath: process.env.APPIMAGE,
-      version: app.getVersion()
+      version: app.getVersion(),
+      onProgress: (event) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.updateProgress, event);
+        }
+      }
     },
     {
       checkForUpdatesOnStartup: preferences.checkForUpdatesOnStartup

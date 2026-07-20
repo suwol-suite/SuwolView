@@ -3,6 +3,9 @@ import electronUpdater from "electron-updater";
 import type {
   AppError,
   AppResult,
+  UpdateCheckPhase,
+  UpdateCheckProgressEvent,
+  UpdateCheckSource,
   UpdatePreferences,
   UpdateState
 } from "../shared/types";
@@ -12,6 +15,7 @@ import { lookupLatestRelease, type ReleaseLookupResult } from "./releaseLookup";
 import { NativeUpdaterCheckService, type UpdateClock } from "./nativeUpdater";
 
 const DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_MS = 60_000;
+export const UPDATE_CHECK_OVERALL_TIMEOUT_MS = 24_000;
 
 export interface UpdateRuntimeOptions {
   isPackaged: boolean;
@@ -23,8 +27,10 @@ export interface UpdateRuntimeOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   nativeCheckTimeoutMs?: number;
+  overallCheckTimeoutMs?: number;
   downloadInactivityTimeoutMs?: number;
   clock?: UpdateClock;
+  onProgress?: (event: UpdateCheckProgressEvent) => void;
 }
 
 export interface UpdateSupport {
@@ -65,10 +71,13 @@ export class UpdateService {
   private readonly platform: NodeJS.Platform;
   private readonly fetchImpl: typeof fetch;
   private readonly lookupTimeoutMs: number | undefined;
+  private readonly nativeCheckTimeoutMs: number | undefined;
+  private readonly overallCheckTimeoutMs: number;
   private readonly nativeChecks: NativeUpdaterCheckService;
   private readonly downloadInactivityTimeoutMs: number;
   private readonly clock: UpdateClock;
   private readonly version: string;
+  private readonly onProgress?: (event: UpdateCheckProgressEvent) => void;
   private state: UpdateState;
   private preferences: UpdatePreferences;
   private checkInFlight?: Promise<AppResult<UpdateState>>;
@@ -81,9 +90,12 @@ export class UpdateService {
     this.platform = options.platform;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.lookupTimeoutMs = options.timeoutMs;
+    this.nativeCheckTimeoutMs = options.nativeCheckTimeoutMs;
+    this.overallCheckTimeoutMs = options.overallCheckTimeoutMs ?? UPDATE_CHECK_OVERALL_TIMEOUT_MS;
     this.downloadInactivityTimeoutMs = options.downloadInactivityTimeoutMs ?? DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_MS;
     this.clock = options.clock ?? { setTimeout, clearTimeout };
     this.version = options.version;
+    this.onProgress = options.onProgress;
     this.preferences = { checkForUpdatesOnStartup: preferences.checkForUpdatesOnStartup === true };
     this.state = {
       status: this.support.status,
@@ -97,7 +109,9 @@ export class UpdateService {
       nativeUpdaterStatus: this.support.supported ? "idle" : "unsupported",
       downloadStatus: "idle",
       installStatus: "idle",
-      error: this.support.reason
+      error: this.support.reason,
+      currentVersion: options.version,
+      phase: "idle"
     };
 
     if (this.support.supported) {
@@ -114,8 +128,14 @@ export class UpdateService {
   }
 
   getStatus(): UpdateState {
+    const elapsedSeconds = this.state.startedAt && this.state.phase && this.state.phase !== "idle"
+      ? this.isActivePhase(this.state.phase)
+        ? Math.max(0, Math.floor((Date.now() - Date.parse(this.state.startedAt)) / 1000))
+        : this.state.elapsedSeconds ?? Math.max(0, Math.floor((Date.now() - Date.parse(this.state.startedAt)) / 1000))
+      : this.state.elapsedSeconds;
     return {
       ...this.state,
+      elapsedSeconds,
       release: this.state.release ? { ...this.state.release, assetNames: [...this.state.release.assetNames] } : undefined,
       error: this.state.error ? { ...this.state.error } : undefined
     };
@@ -141,26 +161,39 @@ export class UpdateService {
       logMain("Startup update check skipped because preference is disabled");
       return;
     }
-    await this.checkForUpdates();
+    await this.checkForUpdates("startup");
   }
 
-  checkForUpdates(): Promise<AppResult<UpdateState>> {
+  checkForUpdates(source: UpdateCheckSource = "manual"): Promise<AppResult<UpdateState>> {
     if (this.checkInFlight) return this.checkInFlight;
     if (this.support.status !== "idle") return Promise.resolve(this.supportFailure());
 
     const generation = ++this.checkGeneration;
     const requestId = `update-${++this.requestSequence}`;
+    const startedAt = new Date().toISOString();
     this.setState({
       status: "checking",
+      requestId,
+      source,
+      phase: "starting",
+      startedAt,
+      elapsedSeconds: 0,
+      messageKey: "updates.progress.starting",
+      errorCode: undefined,
       error: undefined,
       comparison: undefined,
+      updateAvailable: false,
+      downloaded: false,
       releaseLookupStatus: "checking",
-      nativeUpdaterStatus: "idle",
+      nativeUpdaterStatus: "waiting",
       downloadStatus: "idle",
       installStatus: "idle"
     });
-    logMain("Update check started", { requestId, stage: "release-lookup" });
-    const request = this.lookupAndCheckNative(requestId, generation).finally(() => {
+    this.emitProgress(requestId, source, startedAt);
+    this.setState({ phase: "release-lookup", messageKey: "updates.progress.releaseLookup", releaseLookupStatus: "checking", nativeUpdaterStatus: "waiting" });
+    this.emitProgress(requestId, source, startedAt);
+    logMain("Update check started", { requestId, source, rendererTimestamp: startedAt, stage: "release-lookup" });
+    const request = this.lookupAndCheckNative(requestId, source, startedAt, generation).finally(() => {
       if (this.checkGeneration === generation) this.checkInFlight = undefined;
     });
     this.checkInFlight = request;
@@ -203,41 +236,79 @@ export class UpdateService {
     } catch (error) {
       const failure = appFailure("UPDATE_INSTALL_FAILED", "errors.updateFailed");
       logMain("Update install failed", { code: failure.code, error: safeErrorText(error) }, "warn");
-      this.setState({ installStatus: "ready", error: failure });
+      this.setState({ installStatus: "error", errorCode: failure.code, error: failure });
       return failedResult(failure);
     }
   }
 
-  private async lookupAndCheckNative(requestId: string, generation: number): Promise<AppResult<UpdateState>> {
+  private async lookupAndCheckNative(requestId: string, source: UpdateCheckSource, startedAt: string, generation: number): Promise<AppResult<UpdateState>> {
+    const deadline = Date.parse(startedAt) + this.overallCheckTimeoutMs;
     try {
       const result = await lookupLatestRelease({
         platform: this.platform,
         currentVersion: this.version,
         fetchImpl: this.fetchImpl,
-        timeoutMs: this.lookupTimeoutMs
+        timeoutMs: Math.max(1, Math.min(this.lookupTimeoutMs ?? 15_000, deadline - Date.now()))
       });
       if (generation !== this.checkGeneration) return { ok: true, data: this.getStatus() };
       this.applyReleaseResult(result);
-      if (result.comparison !== "update-available") return { ok: true, data: this.getStatus() };
+      this.setState({ phase: "release-lookup-complete", messageKey: "updates.progress.releaseLookupComplete" });
+      this.emitProgress(requestId, source, startedAt);
+      if (result.comparison !== "update-available") {
+        this.setState({ phase: "complete", messageKey: "updates.progress.complete", nativeUpdaterStatus: "not-required", elapsedSeconds: this.elapsedSecondsSince(startedAt) });
+        this.emitProgress(requestId, source, startedAt);
+        return { ok: true, data: this.getStatus() };
+      }
       if (!this.state.autoUpdateSupported) {
         this.setState({ nativeUpdaterStatus: "unsupported" });
+        this.setState({ phase: "complete", messageKey: "updates.progress.complete", elapsedSeconds: this.elapsedSecondsSince(startedAt) });
+        this.emitProgress(requestId, source, startedAt);
         return { ok: true, data: this.getStatus() };
       }
 
-      logMain("Native updater check started", { requestId, stage: "native-check" });
-      this.setState({ nativeUpdaterStatus: "checking" });
-      const nativeResult = await this.nativeChecks.check(requestId);
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        this.applyNativeResult("timeout", undefined, new Error("overall update check timeout"));
+        this.setState({ phase: "timeout", messageKey: "updates.progress.timeout", elapsedSeconds: this.elapsedSecondsSince(startedAt) });
+        this.emitProgress(requestId, source, startedAt);
+        return { ok: true, data: this.getStatus() };
+      }
+      logMain("Native updater check started", { requestId, source, stage: "native-check", remainingMs });
+      this.setState({ phase: "native-check", messageKey: "updates.progress.nativeCheck", nativeUpdaterStatus: "checking" });
+      this.emitProgress(requestId, source, startedAt);
+      const nativeResult = await this.nativeChecks.check(requestId, Math.max(1, Math.min(this.nativeCheckTimeoutMs ?? 20_000, remainingMs)));
       if (generation !== this.checkGeneration) return { ok: true, data: this.getStatus() };
       this.applyNativeResult(
         nativeResult.status,
         "info" in nativeResult ? nativeResult.info : undefined,
         "error" in nativeResult ? nativeResult.error : undefined
       );
+      if (nativeResult.status === "timeout") {
+        this.setState({ phase: "timeout", messageKey: "updates.progress.timeout", errorCode: "UPDATE_NATIVE_CHECK_TIMEOUT", elapsedSeconds: this.elapsedSecondsSince(startedAt) });
+      } else if (nativeResult.status === "error") {
+        this.setState({ phase: "error", messageKey: "updates.progress.error", errorCode: "UPDATE_NATIVE_CHECK_FAILED", elapsedSeconds: this.elapsedSecondsSince(startedAt) });
+      } else {
+        this.setState({ phase: "complete", messageKey: "updates.progress.complete", errorCode: undefined, elapsedSeconds: this.elapsedSecondsSince(startedAt) });
+      }
+      this.emitProgress(requestId, source, startedAt);
       return { ok: true, data: this.getStatus() };
     } catch (error) {
       const appError = "appError" in Object(error) ? (error as { appError: AppError }).appError : appFailure("UPDATE_CHECK_FAILED", "errors.updateNetworkError");
-      this.setState({ status: "error", comparison: "error", releaseLookupStatus: "error", error: appError, lastCheckedAt: new Date().toISOString() });
-      logMain("Release lookup failed", { requestId, stage: "release-lookup", code: appError.code, error: safeErrorText(error) }, "warn");
+      const timedOut = appError.code === "UPDATE_CHECK_TIMEOUT";
+      this.setState({
+        status: "error",
+        comparison: "error",
+        phase: timedOut ? "timeout" : "error",
+        messageKey: timedOut ? "updates.progress.timeout" : "updates.progress.error",
+        errorCode: appError.code,
+        elapsedSeconds: this.elapsedSecondsSince(startedAt),
+        releaseLookupStatus: timedOut ? "timeout" : "error",
+        nativeUpdaterStatus: "waiting",
+        error: appError,
+        lastCheckedAt: new Date().toISOString()
+      });
+      this.emitProgress(requestId, source, startedAt);
+      logMain("Release lookup failed", { requestId, source, rendererTimestamp: new Date().toISOString(), stage: "release-lookup", code: appError.code, error: safeErrorText(error) }, "warn");
       return failedResult(appError);
     }
   }
@@ -258,9 +329,10 @@ export class UpdateService {
       manualDownloadUrl: result.manualDownloadUrl,
       lastCheckedAt: result.checkedAt,
       releaseLookupStatus: "success",
-      nativeUpdaterStatus: result.comparison === "update-available" ? "idle" : "not-available",
+      nativeUpdaterStatus: result.comparison === "update-available" ? "waiting" : "not-required",
       downloadStatus: "idle",
       installStatus: "idle",
+      errorCode: undefined,
       error: undefined
     });
   }
@@ -280,6 +352,36 @@ export class UpdateService {
       releaseName: typeof info?.releaseName === "string" ? info.releaseName : this.state.releaseName,
       error: failure
     });
+  }
+
+  private emitProgress(requestId: string, source: UpdateCheckSource, startedAt: string): void {
+    const event: UpdateCheckProgressEvent = {
+      requestId,
+      source,
+      phase: this.state.phase ?? "idle",
+      messageKey: this.state.messageKey ?? "updates.progress.idle",
+      startedAt,
+      timestamp: new Date().toISOString(),
+      releaseStatus: this.state.releaseLookupStatus ?? "idle",
+      nativeUpdaterStatus: this.state.nativeUpdaterStatus ?? "idle",
+      status: this.state.status,
+      updateAvailable: this.state.updateAvailable,
+      downloaded: this.state.downloaded,
+      comparison: this.state.comparison,
+      latestVersion: this.state.latestVersion,
+      lastCheckedAt: this.state.lastCheckedAt,
+      error: this.state.error ? { ...this.state.error } : undefined
+    };
+    logMain("Update check progress", { requestId, source, rendererTimestamp: event.timestamp, phase: event.phase, messageKey: event.messageKey, releaseStatus: event.releaseStatus, nativeUpdaterStatus: event.nativeUpdaterStatus });
+    this.onProgress?.(event);
+  }
+
+  private isActivePhase(phase: UpdateCheckPhase | undefined): boolean {
+    return phase === "starting" || phase === "release-lookup" || phase === "release-lookup-complete" || phase === "native-check";
+  }
+
+  private elapsedSecondsSince(startedAt: string): number {
+    return Math.max(0, Math.floor((Date.now() - Date.parse(startedAt)) / 1000));
   }
 
   private runDownload(requestId: string): Promise<void> {
@@ -342,7 +444,7 @@ export class UpdateService {
   }
 
   private supportFailure(): AppResult<UpdateState> {
-    this.setState({ status: this.support.status, supported: false, comparison: this.support.status === "disabled" ? "disabled" : undefined, releaseLookupStatus: "idle", nativeUpdaterStatus: "unsupported", error: this.support.reason });
+    this.setState({ status: this.support.status, supported: false, comparison: this.support.status === "disabled" ? "disabled" : undefined, phase: "idle", releaseLookupStatus: "idle", nativeUpdaterStatus: "unsupported", error: this.support.reason, errorCode: this.support.reason?.code, messageKey: this.support.reason?.messageKey });
     return failedResult(this.support.reason ?? appFailure("UPDATE_UNSUPPORTED", "errors.updateUnsupported"));
   }
 

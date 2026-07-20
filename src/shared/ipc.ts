@@ -34,6 +34,7 @@ export const IPC_CHANNELS = {
   getMetadata: "suwol:get-metadata",
   getUpdateStatus: "update:getStatus",
   checkForUpdates: "update:check",
+  updateProgress: "update:progress",
   downloadUpdate: "update:download",
   installUpdate: "update:install"
 } as const;

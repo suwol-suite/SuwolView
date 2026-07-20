@@ -171,6 +171,49 @@ describe("update service support matrix", () => {
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 
+  it("emits an ordered progress state machine with explicit native waiting", async () => {
+    const updater = new FakeUpdater();
+    updater.checkForUpdates.mockImplementation(async () => ({ updateInfo: undefined }) as unknown as UpdateCheckResult);
+    const progress: Array<{ phase: string; releaseStatus: string; nativeUpdaterStatus: string; source: string }> = [];
+    const service = new UpdateService({
+      isPackaged: true,
+      safeMode: false,
+      platform: "win32",
+      version: currentVersion,
+      updater: fakeAppUpdater(updater),
+      fetchImpl: fakeFetch({ tag_name: `v${currentVersion}`, assets: [] }),
+      onProgress: (event) => progress.push({ phase: event.phase, releaseStatus: event.releaseStatus, nativeUpdaterStatus: event.nativeUpdaterStatus, source: event.source })
+    });
+
+    await service.checkForUpdates("manual");
+
+    expect(progress.map((event) => event.phase)).toEqual(["starting", "release-lookup", "release-lookup-complete", "complete"]);
+    expect(progress[0]).toMatchObject({ source: "manual", releaseStatus: "checking", nativeUpdaterStatus: "waiting" });
+    expect(progress.at(-1)).toMatchObject({ phase: "complete", releaseStatus: "success", nativeUpdaterStatus: "not-required" });
+  });
+
+  it("does not report completion before the native updater stage", async () => {
+    const updater = new FakeUpdater();
+    updater.checkForUpdates.mockImplementation(async () => {
+      updater.emit("update-available", { version: nextVersion });
+      return { updateInfo: { version: nextVersion, files: [], path: "", sha512: "" } } as unknown as UpdateCheckResult;
+    });
+    const phases: string[] = [];
+    const service = new UpdateService({
+      isPackaged: true,
+      safeMode: false,
+      platform: "win32",
+      version: currentVersion,
+      updater: fakeAppUpdater(updater),
+      fetchImpl: fakeFetch({ tag_name: `v${nextVersion}`, assets: [{ name: "latest.yml" }, { name: "SuwolView Setup.exe" }] }),
+      onProgress: (event) => phases.push(event.phase)
+    });
+
+    await service.checkForUpdates();
+
+    expect(phases).toEqual(["starting", "release-lookup", "release-lookup-complete", "native-check", "complete"]);
+  });
+
   it("distinguishes latest, ahead, and missing-release outcomes", async () => {
     const base = {
       isPackaged: true,

@@ -210,7 +210,9 @@ export async function lookupLatestRelease(options: ReleaseLookupOptions): Promis
     if (response.status >= 500) throw failure("UPDATE_HTTP_5XX", "errors.updateCheckFailed");
     if (!response.ok) throw failure(`UPDATE_HTTP_${response.status}`, "errors.updateCheckFailed");
 
-    const payload = await readJson(response);
+    // Keep the same deadline while reading the response body. A server can
+    // return headers promptly and then leave the body hanging indefinitely.
+    const payload = await Promise.race([readJson(response), timeoutPromise]);
     if (payload.draft === true || payload.prerelease === true) {
       return {
         currentVersion: options.currentVersion,

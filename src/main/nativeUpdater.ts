@@ -38,20 +38,20 @@ export class NativeUpdaterCheckService {
     private readonly logger: UpdateLogger = defaultLogger
   ) {}
 
-  check(requestId: string): Promise<NativeCheckOutcome> {
+  check(requestId: string, timeoutMs = this.timeoutMs): Promise<NativeCheckOutcome> {
     if (this.inFlight) {
       this.logger.info("Native updater check reused in-flight request", { requestId });
       return this.inFlight;
     }
 
-    const request = this.runCheck(requestId).finally(() => {
+    const request = this.runCheck(requestId, timeoutMs).finally(() => {
       if (this.inFlight === request) this.inFlight = undefined;
     });
     this.inFlight = request;
     return request;
   }
 
-  private runCheck(requestId: string): Promise<NativeCheckOutcome> {
+  private runCheck(requestId: string, timeoutMs: number): Promise<NativeCheckOutcome> {
     return new Promise<NativeCheckOutcome>((resolve) => {
       let settled = false;
       const cleanup = () => {
@@ -81,7 +81,7 @@ export class NativeUpdaterCheckService {
       const timeoutId = this.clock.setTimeout(() => {
         this.logger.warn("Native updater check timed out", { requestId });
         finish({ status: "timeout" });
-      }, this.timeoutMs);
+      }, timeoutMs);
 
       let checkPromise: Promise<UpdateCheckResult | null>;
       try {
