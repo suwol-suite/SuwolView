@@ -12,8 +12,8 @@ import {
 
 describe("macOS Launch Services cleanup", () => {
   it("resolves the real app bundle root from the executable path", () => {
-    expect(resolveMacAppBundleRoot("/Applications/SuwolView.app/Contents/MacOS/SuwolView"))
-      .toBe("/Applications/SuwolView.app");
+    const executablePath = "/Applications/SuwolView.app/Contents/MacOS/SuwolView";
+    expect(resolveMacAppBundleRoot(executablePath)).toBe(path.resolve("/Applications/SuwolView.app"));
     expect(resolveMacAppBundleRoot("/tmp/SuwolView/dist-electron/main.cjs")).toBeUndefined();
   });
 
