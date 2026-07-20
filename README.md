@@ -79,9 +79,9 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows: `SuwolView-0.2.9-setup.exe` is recommended. `SuwolView-0.2.9-win-x64.zip` is the portable package.
-- Linux: `SuwolView-0.2.9-linux-x64.AppImage` is recommended. `SuwolView-0.2.9-linux-x64.tar.gz` is the portable package.
-- macOS: `SuwolView-0.2.9-mac-arm64.dmg` is recommended. `SuwolView-0.2.9-mac-arm64.zip` is the update/archive package.
+- Windows: `SuwolView-0.2.10-setup.exe` is recommended. `SuwolView-0.2.10-win-x64.zip` is the portable package.
+- Linux: `SuwolView-0.2.10-linux-x64.AppImage` is recommended. `SuwolView-0.2.10-linux-x64.tar.gz` is the portable package.
+- macOS: `SuwolView-0.2.10-mac-arm64.dmg` is recommended. `SuwolView-0.2.10-mac-arm64.zip` is the update/archive package.
 
 Windows and Linux assets may appear first. macOS Apple Silicon assets can be
 attached later to the same GitHub Release after Apple notarization and stapling
@@ -89,14 +89,21 @@ complete.
 
 Startup update checks are not enabled by default.
 
-macOS signed ZIP builds and Linux AppImage builds are the intended paths for
-in-app update checks and downloads. The Windows installer is recommended for
-normal Windows use. Portable ZIP and tar.gz archives may require manual
-updates. Update checks are not forced, startup update checks are off by
-default, and Safe Mode disables update checks.
+Windows installer, macOS signed ZIP, and Linux AppImage builds support the
+explicit in-app update flow when the matching release metadata and package are
+available. Portable ZIP and tar.gz archives may require manual updates. Update
+checks are not forced, startup update checks are off by default, and Safe Mode
+disables update checks.
 
 The macOS build for this release is Apple Silicon only. Intel Mac is not
 supported in this release.
+
+### One-time recovery for 0.2.7 and 0.2.9
+
+Some older builds can remain on “Checking for updates” because their updater
+request never completed. Install the 0.2.10 package once from the GitHub
+Releases page. After that, release lookup, platform-package detection, retry,
+download progress, and explicit installation use the fixed update flow.
 
 For local development:
 

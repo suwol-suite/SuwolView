@@ -131,6 +131,11 @@ export type UpdateStatus =
   | "no-release"
   | "error";
 
+export type ReleaseLookupStatus = "idle" | "checking" | "success" | "error";
+export type NativeUpdaterStatus = "idle" | "checking" | "available" | "not-available" | "unsupported" | "timeout" | "error";
+export type UpdateDownloadStatus = "idle" | "downloading" | "downloaded" | "error";
+export type UpdateInstallStatus = "idle" | "ready" | "installing";
+
 export type UpdateComparison = "up-to-date" | "update-available" | "ahead" | "no-release" | "error" | "disabled";
 
 export interface UpdateReleaseInfo {
@@ -143,6 +148,8 @@ export interface UpdateReleaseInfo {
   hasPlatformUpdateMetadata: boolean;
   hasPlatformInstallerAsset: boolean;
   hasDmgAsset?: boolean;
+  platformPackageAvailable?: boolean;
+  manualDownloadUrl?: string;
 }
 
 export interface UpdateState {
@@ -159,6 +166,12 @@ export interface UpdateState {
   autoUpdateSupported?: boolean;
   error?: AppError;
   progressPercent?: number;
+  releaseLookupStatus?: ReleaseLookupStatus;
+  nativeUpdaterStatus?: NativeUpdaterStatus;
+  downloadStatus?: UpdateDownloadStatus;
+  installStatus?: UpdateInstallStatus;
+  platformPackageAvailable?: boolean;
+  manualDownloadUrl?: string;
 }
 
 export interface Preferences extends PanelPreferences, ChromePreferences, UpdatePreferences, ViewerPreferences {

@@ -1,7 +1,7 @@
 {
   "name": "suwol-view",
   "productName": "SuwolView",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "Free open-source cross-platform image, comic, webtoon, and metadata viewer.",
   "license": "Apache-2.0",
   "author": "SuwolView contributors",

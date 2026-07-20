@@ -182,6 +182,8 @@
     "lastChecked": "Last checked",
     "releaseTitle": "Release title",
     "publishedDate": "Published",
+    "nativeUpdateStatus": "Automatic updater",
+    "platformPackageAvailable": "Platform package available",
     "releaseNotes": "Release notes",
     "automaticUpdateAvailable": "Automatic update package available",
     "automaticUpdateUnavailable": "Automatic update package unavailable",
@@ -214,8 +216,17 @@
       "not-available": "No update available",
       "downloading": "Downloading",
       "downloaded": "Downloaded",
+      "error": "Error",
+      "no-release": "No public release"
+    },
+    "nativeStatus": {
+      "idle": "Not run",
+      "checking": "Checking",
+      "available": "Available",
+      "not-available": "Not available",
+      "unsupported": "Unsupported",
+      "timeout": "Timed out",
       "error": "Error"
-      ,"no-release": "No public release"
     }
   },
   "about": {
@@ -254,7 +265,7 @@
     "metadataSkippedSafeMode": "Metadata reading is reduced in safe mode.",
     "updateDisabledDev": "Update checks are disabled in development mode.",
     "updateDisabledSafeMode": "Update checks are disabled in Safe Mode.",
-    "updateUnsupportedPlatform": "In-app update checks are available for macOS signed builds and Linux AppImage builds.",
+    "updateUnsupportedPlatform": "In-app update checks are not supported on this platform.",
     "updateUnsupportedLinuxPackage": "This Linux package uses manual updates.",
     "updateUnsupported": "Update checks are not supported here.",
     "updateCheckFailed": "Failed to check for updates.",
@@ -266,7 +277,11 @@
     "systemSettingsUnsupported": "Windows Default Apps settings are only available on Windows.",
     "updateCheckTimeout": "The update check timed out.",
     "updateNoRelease": "No public release was found.",
-    "updateNetworkError": "A network error occurred while checking for updates."
+    "updateNetworkError": "A network error occurred while checking for updates.",
+    "updateNativeCheckTimeout": "The automatic updater check timed out. You can still download the release manually.",
+    "updateNativeCheckFailed": "The automatic updater could not confirm this package. You can still download the release manually.",
+    "updateDownloadTimeout": "The update download became inactive. Please retry or download the release manually.",
+    "updateInstallFailed": "The downloaded update could not be installed."
   },
   "formats": {
     "native": "Native",

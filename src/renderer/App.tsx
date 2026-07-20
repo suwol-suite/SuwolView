@@ -97,7 +97,7 @@ interface PanelResizeState {
 
 const PANEL_STATE_DELAY_MS = 250;
 const METADATA_REQUEST_DELAY_MS = 250;
-const UPDATE_CHECK_UI_TIMEOUT_MS = 20_000;
+const UPDATE_CHECK_UI_TIMEOUT_MS = 25_000;
 
 const viewModeOptions: readonly ViewMode[] = [
   "original",
@@ -1175,6 +1175,12 @@ export function App(): React.ReactElement {
       release: current?.release,
       lastCheckedAt: current?.lastCheckedAt,
       autoUpdateSupported: current?.autoUpdateSupported,
+      releaseLookupStatus: current?.releaseLookupStatus,
+      nativeUpdaterStatus: current?.nativeUpdaterStatus,
+      downloadStatus: current?.downloadStatus,
+      installStatus: current?.installStatus,
+      platformPackageAvailable: current?.platformPackageAvailable,
+      manualDownloadUrl: current?.manualDownloadUrl,
       error: result
     }));
     setError(translatedErrorMessage(result, t));
@@ -1183,7 +1189,7 @@ export function App(): React.ReactElement {
   const checkForUpdates = useCallback(() => {
     const requestId = updateCheckRequestRef.current + 1;
     updateCheckRequestRef.current = requestId;
-    setUpdateStatus((current) => (current ? { ...current, status: "checking", error: undefined } : current));
+    setUpdateStatus((current) => (current ? { ...current, status: "checking", releaseLookupStatus: "checking", error: undefined } : current));
     let timeoutId: number | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timeoutId = window.setTimeout(() => reject({ code: "UPDATE_CHECK_TIMEOUT", messageKey: "errors.updateCheckTimeout" }), UPDATE_CHECK_UI_TIMEOUT_MS);
@@ -1209,6 +1215,12 @@ export function App(): React.ReactElement {
           release: current?.release,
           lastCheckedAt: new Date().toISOString(),
           autoUpdateSupported: current?.autoUpdateSupported,
+          releaseLookupStatus: "error",
+          nativeUpdaterStatus: current?.nativeUpdaterStatus,
+          downloadStatus: current?.downloadStatus,
+          installStatus: current?.installStatus,
+          platformPackageAvailable: current?.platformPackageAvailable,
+          manualDownloadUrl: current?.manualDownloadUrl,
           error: appError
         }));
         setError(translatedErrorMessage(appError, t));
@@ -1221,15 +1233,22 @@ export function App(): React.ReactElement {
   const downloadUpdate = useCallback(() => {
     setUpdateStatus((current) => (current ? { ...current, status: "downloading", error: undefined } : current));
     void window.suwol.downloadUpdate().then(applyUpdateResult).catch((updateError) => {
+      setUpdateStatus((current) => (current ? { ...current, status: "error", downloadStatus: "error", error: updateError } : current));
       setError(translatedErrorMessage(updateError, t));
     });
   }, [applyUpdateResult, t]);
 
   const installUpdate = useCallback(() => {
     void window.suwol.installUpdate().then(applyUpdateResult).catch((updateError) => {
+      setUpdateStatus((current) => (current ? { ...current, status: "error", installStatus: "ready", error: updateError } : current));
       setError(translatedErrorMessage(updateError, t));
     });
   }, [applyUpdateResult, t]);
+
+  const closePreferences = useCallback(() => {
+    updateCheckRequestRef.current += 1;
+    setPreferencesOpen(false);
+  }, []);
 
   const setUpdateStartupCheck = useCallback((enabled: boolean) => {
     setCheckForUpdatesOnStartup(enabled);
@@ -1671,7 +1690,7 @@ export function App(): React.ReactElement {
           onCleanupThumbnailCache={cleanupThumbnailCache}
           onClearThumbnailCache={clearThumbnailCache}
           onCheckForUpdates={checkForUpdates}
-          onClose={() => setPreferencesOpen(false)}
+          onClose={closePreferences}
           onCopyExecutablePath={copyExecutablePath}
           onDownloadUpdate={downloadUpdate}
           onInstallUpdate={installUpdate}
@@ -1787,7 +1806,7 @@ function PreferencesModal({
   const [activeTab, setActiveTab] = useState<PreferencesTab>("general");
   const updateStatusLabel = t(`updates.status.${updateStatus?.status ?? "idle"}`);
   const updateError = updateStatus?.error ? translatedErrorMessage(updateStatus.error, t) : undefined;
-  const canCheckForUpdates = runtimeInfo?.isPackaged === true && updateStatus?.status !== "checking" && updateStatus?.status !== "disabled";
+  const canCheckForUpdates = runtimeInfo?.isPackaged === true && updateStatus?.status !== "disabled" && updateStatus?.releaseLookupStatus !== "checking" && updateStatus?.nativeUpdaterStatus !== "checking";
   const canDownloadUpdate = updateStatus?.supported === true && updateStatus.autoUpdateSupported === true && updateStatus.updateAvailable && updateStatus.status !== "downloading";
   const canInstallUpdate = updateStatus?.supported === true && updateStatus.downloaded;
   const showDeveloperUpdateNotes = runtimeInfo?.isPackaged === false;
@@ -1968,6 +1987,9 @@ function PreferencesModal({
                 <div className="subheading">{t("settings.updates")}</div>
                 <InfoRow label={t("settings.currentVersion")} value={runtimeInfo?.version ?? t("common.unknown")} />
                 <InfoRow label={t("settings.updateStatus")} value={updateStatusLabel} />
+                {updateStatus?.nativeUpdaterStatus && (
+                  <InfoRow label={t("settings.nativeUpdateStatus")} value={t(`updates.nativeStatus.${updateStatus.nativeUpdaterStatus}`)} />
+                )}
                 {updateStatus?.latestVersion && <InfoRow label={t("settings.latestVersion")} value={updateStatus.latestVersion} />}
                 {updateStatus?.lastCheckedAt && (
                   <InfoRow label={t("settings.lastChecked")} value={formatDate(updateStatus.lastCheckedAt, i18n.language, t("common.unknown"))} />
@@ -1985,7 +2007,12 @@ function PreferencesModal({
                     {updateStatus.autoUpdateSupported ? t("settings.automaticUpdateAvailable") : t("settings.automaticUpdateUnavailable")}
                   </p>
                 )}
-                {updateStatus?.updateAvailable && !updateStatus.autoUpdateSupported && <p className="settings-note">{t("settings.manualDownload")}</p>}
+                {updateStatus?.platformPackageAvailable !== undefined && updateStatus.updateAvailable && (
+                  <InfoRow label={t("settings.platformPackageAvailable")} value={updateStatus.platformPackageAvailable ? t("settings.automaticUpdateAvailable") : t("settings.automaticUpdateUnavailable")} />
+                )}
+                {updateStatus?.updateAvailable && (!updateStatus.autoUpdateSupported || updateStatus.nativeUpdaterStatus === "timeout" || updateStatus.nativeUpdaterStatus === "error") && (
+                  <p className="settings-note">{t("settings.manualDownload")}</p>
+                )}
                 {updateStatus?.release?.body && (
                   <div className="settings-release-notes" data-wheel-scroll-region="true">
                     <div className="subheading">{t("settings.releaseNotes")}</div>

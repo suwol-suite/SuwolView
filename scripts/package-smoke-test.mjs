@@ -40,6 +40,7 @@ const requiredPackagedResources = [
   "resources/docs/third-party-policy.md",
   "resources/docs/lgpl-compliance.md",
   "resources/docs/security-policy.md",
+  "resources/app-update.yml",
   `resources/${manualQcFile}`,
   `resources/${releaseNotesFile}`,
   "resources/icon.ico",
@@ -382,6 +383,17 @@ async function checkCommand(command, args, label, options = {}) {
 async function checkMacSigningAndStapling(releaseDir, dmgFileName) {
   if (process.platform !== "darwin") {
     notes.push("macOS signing and notarization checks skipped on non-macOS host.");
+    return;
+  }
+
+  try {
+    const { stdout } = await execFileAsync("security", ["find-identity", "-v", "-p", "codesigning"], { cwd: root, timeout: 120000 });
+    if (!stdout.includes("Developer ID Application")) {
+      notes.push("Warning: no Developer ID Application identity found; unsigned macOS signing/stapling checks skipped.");
+      return;
+    }
+  } catch (error) {
+    notes.push(`Warning: unable to inspect macOS signing identities; unsigned signing/stapling checks skipped: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
 

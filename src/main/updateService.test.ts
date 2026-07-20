@@ -140,16 +140,14 @@ describe("update service support matrix", () => {
       appImagePath: "/tmp/SuwolView.AppImage",
       version: currentVersion,
       updater: fakeAppUpdater(updater),
-      fetchImpl: fakeFetch([
-        {
-          tag_name: `v${nextVersion}`,
-          name: `SuwolView ${nextVersion}`,
-          published_at: "2026-07-20T00:00:00.000Z",
-          body: "Release notes",
-          html_url: "https://github.com/suwol-suite/SuwolView/releases/tag/v0.2.7",
-          assets: [{ name: "latest-linux.yml" }, { name: "SuwolView-0.2.7.AppImage" }]
-        }
-      ])
+      fetchImpl: fakeFetch({
+        tag_name: `v${nextVersion}`,
+        name: `SuwolView ${nextVersion}`,
+        published_at: "2026-07-20T00:00:00.000Z",
+        body: "Release notes",
+        html_url: "https://github.com/suwol-suite/SuwolView/releases/tag/v0.2.7",
+        assets: [{ name: "latest-linux.yml" }, { name: "SuwolView-0.2.7.AppImage" }]
+      })
     });
 
     await expect(service.checkForUpdates()).resolves.toMatchObject({
@@ -167,6 +165,7 @@ describe("update service support matrix", () => {
         downloaded: true
       }
     });
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
 
     expect(service.installUpdate()).toMatchObject({ ok: true });
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true);
@@ -181,13 +180,13 @@ describe("update service support matrix", () => {
       updater: fakeAppUpdater()
     };
     await expect(
-      new UpdateService({ ...base, fetchImpl: fakeFetch([{ tag_name: "v0.2.6", assets: [] }]) }).checkForUpdates()
+      new UpdateService({ ...base, fetchImpl: fakeFetch({ tag_name: "v0.2.6", assets: [] }) }).checkForUpdates()
     ).resolves.toMatchObject({ ok: true, data: { comparison: "up-to-date", status: "not-available" } });
     await expect(
-      new UpdateService({ ...base, version: "0.3.0", fetchImpl: fakeFetch([{ tag_name: "v0.2.6", assets: [] }]) }).checkForUpdates()
+      new UpdateService({ ...base, version: "0.3.0", fetchImpl: fakeFetch({ tag_name: "v0.2.6", assets: [] }) }).checkForUpdates()
     ).resolves.toMatchObject({ ok: true, data: { comparison: "ahead" } });
     await expect(
-      new UpdateService({ ...base, fetchImpl: fakeFetch([]) }).checkForUpdates()
+      new UpdateService({ ...base, fetchImpl: fakeFetch(undefined, 404) }).checkForUpdates()
     ).resolves.toMatchObject({ ok: true, data: { comparison: "no-release", status: "no-release" } });
   });
 
@@ -204,6 +203,40 @@ describe("update service support matrix", () => {
         updater: fakeAppUpdater()
       }).checkForUpdates()
     ).resolves.toMatchObject({ ok: false, code: "UPDATE_CHECK_TIMEOUT", messageKey: "errors.updateCheckTimeout" });
+  });
+
+  it("keeps release details available when the native updater check times out", async () => {
+    const updater = new FakeUpdater();
+    updater.checkForUpdates.mockImplementation(() => new Promise<UpdateCheckResult | null>(() => undefined));
+    const service = new UpdateService({
+      isPackaged: true,
+      safeMode: false,
+      platform: "win32",
+      version: currentVersion,
+      nativeCheckTimeoutMs: 5,
+      updater: fakeAppUpdater(updater),
+      fetchImpl: fakeFetch({
+        tag_name: "v0.2.10",
+        name: "SuwolView 0.2.10",
+        published_at: "2026-07-20T00:00:00.000Z",
+        body: "Release notes",
+        html_url: "https://github.com/suwol-suite/SuwolView/releases/tag/v0.2.10",
+        assets: [{ name: "latest.yml" }, { name: "SuwolView-0.2.10-setup.exe" }]
+      })
+    });
+
+    await expect(service.checkForUpdates()).resolves.toMatchObject({
+      ok: true,
+      data: {
+        status: "available",
+        updateAvailable: true,
+        latestVersion: "0.2.10",
+        nativeUpdaterStatus: "timeout",
+        releaseLookupStatus: "success",
+        error: { code: "UPDATE_NATIVE_CHECK_TIMEOUT" }
+      }
+    });
+    expect(updater.listenerCount("update-available")).toBe(1);
   });
 
   it("does not create duplicate requests while a check is in flight", async () => {
@@ -224,7 +257,7 @@ describe("update service support matrix", () => {
     const first = service.checkForUpdates();
     const second = service.checkForUpdates();
     expect(first).toBe(second);
-    resolveFetch?.({ ok: true, status: 200, json: async () => [{ tag_name: "v0.2.6", assets: [] }] });
+    resolveFetch?.({ ok: true, status: 200, json: async () => ({ tag_name: "v0.2.6", assets: [] }) });
     await expect(first).resolves.toMatchObject({ ok: true, data: { comparison: "up-to-date" } });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });

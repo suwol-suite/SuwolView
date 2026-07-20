@@ -1,19 +1,17 @@
 import type { AppUpdater, ProgressInfo, UpdateDownloadedEvent, UpdateInfo } from "electron-updater";
 import electronUpdater from "electron-updater";
-import semver from "semver";
 import type {
   AppError,
   AppResult,
-  UpdateComparison,
   UpdatePreferences,
-  UpdateReleaseInfo,
   UpdateState
 } from "../shared/types";
 import { logMain } from "./logging";
 import { failedResult } from "./metadataSafety";
+import { lookupLatestRelease, type ReleaseLookupResult } from "./releaseLookup";
+import { NativeUpdaterCheckService, type UpdateClock } from "./nativeUpdater";
 
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/suwol-suite/SuwolView/releases?per_page=30";
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_MS = 60_000;
 
 export interface UpdateRuntimeOptions {
   isPackaged: boolean;
@@ -24,6 +22,9 @@ export interface UpdateRuntimeOptions {
   updater?: AppUpdater;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  nativeCheckTimeoutMs?: number;
+  downloadInactivityTimeoutMs?: number;
+  clock?: UpdateClock;
 }
 
 export interface UpdateSupport {
@@ -32,113 +33,28 @@ export interface UpdateSupport {
   reason?: AppError;
 }
 
-interface GitHubReleasePayload {
-  draft?: unknown;
-  prerelease?: unknown;
-  tag_name?: unknown;
-  name?: unknown;
-  published_at?: unknown;
-  body?: unknown;
-  html_url?: unknown;
-  assets?: unknown;
-}
-
 function appFailure(code: string, messageKey: string): AppError {
   return { code, messageKey };
 }
 
-function normalizeVersion(tag: string): string {
-  return tag.trim().replace(/^v/i, "");
-}
-
-function isValidVersion(value: string): boolean {
-  return semver.valid(value) !== null;
-}
-
-function classifyVersion(currentVersion: string, latestVersion: string): UpdateComparison {
-  const current = normalizeVersion(currentVersion);
-  const latest = normalizeVersion(latestVersion);
-  if (!isValidVersion(current) || !isValidVersion(latest)) return "error";
-  const comparison = semver.compare(current, latest);
-  if (comparison === 0) return "up-to-date";
-  return comparison < 0 ? "update-available" : "ahead";
-}
-
-function platformAssets(platform: NodeJS.Platform, assetNames: string[]): Pick<UpdateReleaseInfo, "hasPlatformUpdateMetadata" | "hasPlatformInstallerAsset" | "hasDmgAsset"> {
-  const names = assetNames.map((name) => name.toLowerCase());
-  if (platform === "win32") {
-    return {
-      hasPlatformUpdateMetadata: names.includes("latest.yml"),
-      hasPlatformInstallerAsset: names.some((name) => name.endsWith(".exe")),
-      hasDmgAsset: false
-    };
-  }
-  if (platform === "darwin") {
-    return {
-      hasPlatformUpdateMetadata: names.includes("latest-mac.yml"),
-      hasPlatformInstallerAsset: names.some((name) => name.endsWith(".zip") && /(^|-)mac(-|\.|$)/.test(name)),
-      hasDmgAsset: names.some((name) => name.endsWith(".dmg"))
-    };
-  }
-  if (platform === "linux") {
-    return {
-      hasPlatformUpdateMetadata: names.includes("latest-linux.yml"),
-      hasPlatformInstallerAsset: names.some((name) => name.endsWith(".appimage")),
-      hasDmgAsset: false
-    };
-  }
-  return { hasPlatformUpdateMetadata: false, hasPlatformInstallerAsset: false, hasDmgAsset: false };
-}
-
-function releaseFromPayload(platform: NodeJS.Platform, payload: GitHubReleasePayload): UpdateReleaseInfo {
-  const assetNames = Array.isArray(payload.assets)
-    ? payload.assets
-        .map((asset) => (asset && typeof asset === "object" && "name" in asset ? asset.name : undefined))
-        .filter((name): name is string => typeof name === "string")
-    : [];
-  return {
-    latestTag: typeof payload.tag_name === "string" ? payload.tag_name : undefined,
-    title: typeof payload.name === "string" ? payload.name : undefined,
-    publishedAt:
-      typeof payload.published_at === "string" && !Number.isNaN(Date.parse(payload.published_at))
-        ? payload.published_at
-        : undefined,
-    body: typeof payload.body === "string" ? payload.body : undefined,
-    url: typeof payload.html_url === "string" ? payload.html_url : undefined,
-    assetNames,
-    ...platformAssets(platform, assetNames)
-  };
+function safeErrorText(error: unknown): string {
+  if (error instanceof Error) return error.message.slice(0, 160);
+  return typeof error === "string" ? error.slice(0, 160) : "unknown error";
 }
 
 export function resolveUpdateSupport(options: UpdateRuntimeOptions): UpdateSupport {
   if (!options.isPackaged) {
-    return {
-      supported: false,
-      status: "disabled",
-      reason: appFailure("UPDATE_DISABLED_DEV", "errors.updateDisabledDev")
-    };
+    return { supported: false, status: "disabled", reason: appFailure("UPDATE_DISABLED_DEV", "errors.updateDisabledDev") };
   }
   if (options.safeMode) {
-    return {
-      supported: false,
-      status: "disabled",
-      reason: appFailure("UPDATE_DISABLED_SAFE_MODE", "errors.updateDisabledSafeMode")
-    };
+    return { supported: false, status: "disabled", reason: appFailure("UPDATE_DISABLED_SAFE_MODE", "errors.updateDisabledSafeMode") };
   }
-  if (options.platform === "darwin") return { supported: true, status: "idle" };
+  if (options.platform === "darwin" || options.platform === "win32") return { supported: true, status: "idle" };
   if (options.platform !== "linux") {
-    return {
-      supported: false,
-      status: "unsupported",
-      reason: appFailure("UPDATE_UNSUPPORTED_PLATFORM", "errors.updateUnsupportedPlatform")
-    };
+    return { supported: false, status: "unsupported", reason: appFailure("UPDATE_UNSUPPORTED_PLATFORM", "errors.updateUnsupportedPlatform") };
   }
   if (!options.appImagePath) {
-    return {
-      supported: false,
-      status: "unsupported",
-      reason: appFailure("UPDATE_UNSUPPORTED_LINUX_PACKAGE", "errors.updateUnsupportedLinuxPackage")
-    };
+    return { supported: false, status: "unsupported", reason: appFailure("UPDATE_UNSUPPORTED_LINUX_PACKAGE", "errors.updateUnsupportedLinuxPackage") };
   }
   return { supported: true, status: "idle" };
 }
@@ -148,19 +64,25 @@ export class UpdateService {
   private readonly support: UpdateSupport;
   private readonly platform: NodeJS.Platform;
   private readonly fetchImpl: typeof fetch;
-  private readonly timeoutMs: number;
+  private readonly lookupTimeoutMs: number | undefined;
+  private readonly nativeChecks: NativeUpdaterCheckService;
+  private readonly downloadInactivityTimeoutMs: number;
+  private readonly clock: UpdateClock;
   private readonly version: string;
   private state: UpdateState;
   private preferences: UpdatePreferences;
   private checkInFlight?: Promise<AppResult<UpdateState>>;
   private checkGeneration = 0;
+  private requestSequence = 0;
 
   constructor(options: UpdateRuntimeOptions, preferences: UpdatePreferences = { checkForUpdatesOnStartup: false }) {
     this.updater = options.updater ?? electronUpdater.autoUpdater;
     this.support = resolveUpdateSupport(options);
     this.platform = options.platform;
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.lookupTimeoutMs = options.timeoutMs;
+    this.downloadInactivityTimeoutMs = options.downloadInactivityTimeoutMs ?? DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_MS;
+    this.clock = options.clock ?? { setTimeout, clearTimeout };
     this.version = options.version;
     this.preferences = { checkForUpdatesOnStartup: preferences.checkForUpdatesOnStartup === true };
     this.state = {
@@ -170,11 +92,25 @@ export class UpdateService {
       downloaded: false,
       version: options.version,
       comparison: this.support.status === "disabled" ? "disabled" : undefined,
-      autoUpdateSupported: this.support.supported,
+      autoUpdateSupported: false,
+      releaseLookupStatus: "idle",
+      nativeUpdaterStatus: this.support.supported ? "idle" : "unsupported",
+      downloadStatus: "idle",
+      installStatus: "idle",
       error: this.support.reason
     };
 
-    if (this.support.supported) this.configureUpdater();
+    if (this.support.supported) {
+      this.nativeChecks = new NativeUpdaterCheckService(
+        this.updater,
+        options.nativeCheckTimeoutMs,
+        this.clock,
+        { info: (message, details) => logMain(message, details), warn: (message, details) => logMain(message, details, "warn") }
+      );
+      this.configureUpdater();
+    } else {
+      this.nativeChecks = new NativeUpdaterCheckService(this.updater, options.nativeCheckTimeoutMs, this.clock);
+    }
   }
 
   getStatus(): UpdateState {
@@ -210,10 +146,21 @@ export class UpdateService {
 
   checkForUpdates(): Promise<AppResult<UpdateState>> {
     if (this.checkInFlight) return this.checkInFlight;
+    if (this.support.status !== "idle") return Promise.resolve(this.supportFailure());
 
     const generation = ++this.checkGeneration;
-    this.setState({ status: "checking", error: undefined, comparison: undefined });
-    const request = this.fetchLatestRelease(generation).finally(() => {
+    const requestId = `update-${++this.requestSequence}`;
+    this.setState({
+      status: "checking",
+      error: undefined,
+      comparison: undefined,
+      releaseLookupStatus: "checking",
+      nativeUpdaterStatus: "idle",
+      downloadStatus: "idle",
+      installStatus: "idle"
+    });
+    logMain("Update check started", { requestId, stage: "release-lookup" });
+    const request = this.lookupAndCheckNative(requestId, generation).finally(() => {
       if (this.checkGeneration === generation) this.checkInFlight = undefined;
     });
     this.checkInFlight = request;
@@ -225,13 +172,21 @@ export class UpdateService {
     if (supportFailure) return supportFailure;
     if (!this.state.updateAvailable) return failedResult(appFailure("UPDATE_NOT_AVAILABLE", "errors.updateNotAvailable"));
 
-    this.setState({ status: "downloading", error: undefined });
+    const requestId = `download-${++this.requestSequence}`;
+    this.setState({ status: "downloading", downloadStatus: "downloading", progressPercent: 0, error: undefined });
+    logMain("Update download started", { requestId, stage: "download" });
     try {
-      await this.updater.checkForUpdates();
-      await this.updater.downloadUpdate();
+      await this.runDownload(requestId);
+      this.setState({ status: "downloaded", downloaded: true, downloadStatus: "downloaded", installStatus: "ready", progressPercent: 100, error: undefined });
       return { ok: true, data: this.getStatus() };
     } catch (error) {
-      return this.fail("UPDATE_DOWNLOAD_FAILED", "errors.updateDownloadFailed", error);
+      const failure = appFailure(
+        error instanceof DownloadTimeoutError ? "UPDATE_DOWNLOAD_TIMEOUT" : "UPDATE_DOWNLOAD_FAILED",
+        error instanceof DownloadTimeoutError ? "errors.updateDownloadTimeout" : "errors.updateDownloadFailed"
+      );
+      logMain("Update download failed", { requestId, code: failure.code, error: safeErrorText(error) }, "warn");
+      this.setState({ status: "error", downloaded: false, downloadStatus: "error", error: failure });
+      return failedResult(failure);
     }
   }
 
@@ -240,151 +195,165 @@ export class UpdateService {
     if (supportFailure) return supportFailure;
     if (!this.state.downloaded) return failedResult(appFailure("UPDATE_NOT_DOWNLOADED", "errors.updateNotDownloaded"));
 
-    logMain("Installing downloaded update");
-    this.updater.quitAndInstall(false, true);
-    return { ok: true, data: this.getStatus() };
+    try {
+      this.setState({ installStatus: "installing" });
+      logMain("Installing downloaded update", { requestId: `install-${++this.requestSequence}`, stage: "install" });
+      this.updater.quitAndInstall(false, true);
+      return { ok: true, data: this.getStatus() };
+    } catch (error) {
+      const failure = appFailure("UPDATE_INSTALL_FAILED", "errors.updateFailed");
+      logMain("Update install failed", { code: failure.code, error: safeErrorText(error) }, "warn");
+      this.setState({ installStatus: "ready", error: failure });
+      return failedResult(failure);
+    }
   }
 
-  private async fetchLatestRelease(generation: number): Promise<AppResult<UpdateState>> {
-    if (this.support.status === "disabled") return this.supportFailure();
-
+  private async lookupAndCheckNative(requestId: string, generation: number): Promise<AppResult<UpdateState>> {
     try {
-      const payload = await this.requestJson(generation);
-      const release = payload ? releaseFromPayload(this.platform, payload) : undefined;
-      if (!release) {
-        this.setStateForGeneration(generation, {
-          status: "no-release",
-          comparison: "no-release",
-          updateAvailable: false,
-          downloaded: false,
-          lastCheckedAt: new Date().toISOString(),
-          error: undefined
-        });
+      const result = await lookupLatestRelease({
+        platform: this.platform,
+        currentVersion: this.version,
+        fetchImpl: this.fetchImpl,
+        timeoutMs: this.lookupTimeoutMs
+      });
+      if (generation !== this.checkGeneration) return { ok: true, data: this.getStatus() };
+      this.applyReleaseResult(result);
+      if (result.comparison !== "update-available") return { ok: true, data: this.getStatus() };
+      if (!this.state.autoUpdateSupported) {
+        this.setState({ nativeUpdaterStatus: "unsupported" });
         return { ok: true, data: this.getStatus() };
       }
 
-      const latestTag = release.latestTag;
-      const latestVersion = latestTag ? normalizeVersion(latestTag) : "";
-      if (!latestTag || !isValidVersion(latestVersion)) {
-        return this.fail("UPDATE_RESPONSE_INVALID", "errors.updateCheckFailed", new Error("Invalid release version"), generation);
-      }
-      const comparison = classifyVersion(this.version, latestVersion);
-      if (comparison === "error") {
-        return this.fail("UPDATE_VERSION_INVALID", "errors.updateCheckFailed", new Error("Invalid application version"), generation);
-      }
-      const updateAvailable = comparison === "update-available";
-      const autoUpdateSupported = this.support.supported && release.hasPlatformUpdateMetadata && release.hasPlatformInstallerAsset;
-      this.setStateForGeneration(generation, {
-        status: updateAvailable ? "available" : "not-available",
-        supported: this.support.supported,
-        updateAvailable,
-        downloaded: false,
-        latestVersion,
-        releaseName: release.title,
-        release,
-        comparison,
-        autoUpdateSupported,
-        lastCheckedAt: new Date().toISOString(),
-        error: undefined
-      });
+      logMain("Native updater check started", { requestId, stage: "native-check" });
+      this.setState({ nativeUpdaterStatus: "checking" });
+      const nativeResult = await this.nativeChecks.check(requestId);
+      if (generation !== this.checkGeneration) return { ok: true, data: this.getStatus() };
+      this.applyNativeResult(
+        nativeResult.status,
+        "info" in nativeResult ? nativeResult.info : undefined,
+        "error" in nativeResult ? nativeResult.error : undefined
+      );
       return { ok: true, data: this.getStatus() };
     } catch (error) {
-      const isTimeout = error instanceof UpdateTimeoutError;
-      return this.fail(
-        isTimeout ? "UPDATE_CHECK_TIMEOUT" : "UPDATE_CHECK_FAILED",
-        isTimeout ? "errors.updateCheckTimeout" : "errors.updateNetworkError",
-        error,
-        generation
-      );
+      const appError = "appError" in Object(error) ? (error as { appError: AppError }).appError : appFailure("UPDATE_CHECK_FAILED", "errors.updateNetworkError");
+      this.setState({ status: "error", comparison: "error", releaseLookupStatus: "error", error: appError, lastCheckedAt: new Date().toISOString() });
+      logMain("Release lookup failed", { requestId, stage: "release-lookup", code: appError.code, error: safeErrorText(error) }, "warn");
+      return failedResult(appError);
     }
   }
 
-  private async requestJson(generation: number): Promise<GitHubReleasePayload | undefined> {
-    const controller = new AbortController();
-    let timedOut = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-        reject(new UpdateTimeoutError());
-      }, this.timeoutMs);
+  private applyReleaseResult(result: ReleaseLookupResult): void {
+    const updateAvailable = result.comparison === "update-available";
+    this.setState({
+      status: result.comparison === "no-release" ? "no-release" : updateAvailable ? "available" : "not-available",
+      supported: this.support.supported,
+      updateAvailable,
+      downloaded: false,
+      latestVersion: result.latestVersion,
+      releaseName: result.releaseName,
+      release: result.release,
+      comparison: result.comparison,
+      autoUpdateSupported: result.platformPackageAvailable && this.support.supported,
+      platformPackageAvailable: result.platformPackageAvailable,
+      manualDownloadUrl: result.manualDownloadUrl,
+      lastCheckedAt: result.checkedAt,
+      releaseLookupStatus: "success",
+      nativeUpdaterStatus: result.comparison === "update-available" ? "idle" : "not-available",
+      downloadStatus: "idle",
+      installStatus: "idle",
+      error: undefined
     });
-    try {
-      const response = await Promise.race([
-        this.fetchImpl(GITHUB_RELEASES_URL, {
-          headers: {
-            Accept: "application/vnd.github+json",
-            "User-Agent": "SuwolView-update-check"
-          },
-          signal: controller.signal
-        }),
-        timeout
-      ]);
-      if (generation !== this.checkGeneration) throw new Error("Stale update check response");
-      if (response.status === 404) return undefined;
-      if (!response.ok) throw new Error(`GitHub API returned ${response.status}`);
-      const raw = (await response.json()) as unknown;
-      if (!Array.isArray(raw)) throw new Error("GitHub API returned malformed JSON");
-      const stableRelease = raw.find(
-        (entry): entry is GitHubReleasePayload =>
-          Boolean(entry && typeof entry === "object") && entry.draft !== true && entry.prerelease !== true
-      );
-      return stableRelease;
-    } catch (error) {
-      if (timedOut) throw new UpdateTimeoutError();
-      throw error;
-    } finally {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-    }
+  }
+
+  private applyNativeResult(status: "available" | "not-available" | "error" | "timeout", info?: UpdateInfo, error?: unknown): void {
+    const nextStatus = status === "available" || this.state.updateAvailable ? "available" : status === "not-available" ? "not-available" : "error";
+    const failure = status === "timeout"
+      ? appFailure("UPDATE_NATIVE_CHECK_TIMEOUT", "errors.updateNativeCheckTimeout")
+      : status === "error"
+        ? appFailure("UPDATE_NATIVE_CHECK_FAILED", "errors.updateNativeCheckFailed")
+        : undefined;
+    if (failure) logMain("Native updater check ended with failure", { code: failure.code, error: safeErrorText(error) }, "warn");
+    this.setState({
+      status: nextStatus,
+      nativeUpdaterStatus: status,
+      latestVersion: typeof info?.version === "string" ? info.version : this.state.latestVersion,
+      releaseName: typeof info?.releaseName === "string" ? info.releaseName : this.state.releaseName,
+      error: failure
+    });
+  }
+
+  private runDownload(requestId: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timerId: ReturnType<typeof setTimeout> | undefined;
+      const resetTimer = () => {
+        if (timerId !== undefined) this.clock.clearTimeout(timerId);
+        timerId = this.clock.setTimeout(() => finish(new DownloadTimeoutError()), this.downloadInactivityTimeoutMs);
+      };
+      const cleanup = () => {
+        if (timerId !== undefined) this.clock.clearTimeout(timerId);
+        this.updater.removeListener("download-progress", onProgress);
+        this.updater.removeListener("update-downloaded", onDownloaded);
+      };
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (error) reject(error);
+        else resolve();
+      };
+      const onProgress = (progress: ProgressInfo) => {
+        this.setState({ status: "downloading", downloadStatus: "downloading", progressPercent: Math.max(0, Math.min(100, progress.percent)) });
+        resetTimer();
+      };
+      const onDownloaded = () => finish();
+      this.updater.on("download-progress", onProgress);
+      this.updater.on("update-downloaded", onDownloaded);
+      resetTimer();
+      let downloadPromise: Promise<string[]>;
+      try {
+        downloadPromise = this.updater.downloadUpdate();
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error("download failed"));
+        return;
+      }
+      void downloadPromise.then(() => finish(), (error) => finish(error instanceof Error ? error : new Error("download failed")));
+      logMain("Update download request sent", { requestId, stage: "download" });
+    });
   }
 
   private configureUpdater(): void {
     this.updater.autoDownload = false;
     this.updater.autoInstallOnAppQuit = false;
-    this.updater.on("checking-for-update", () => this.setState({ status: "checking", error: undefined }));
-    this.updater.on("update-available", (info: UpdateInfo) => {
-      this.setState({ status: "available", updateAvailable: true, downloaded: false, latestVersion: info.version, releaseName: typeof info.releaseName === "string" ? info.releaseName : undefined, error: undefined });
-    });
-    this.updater.on("update-not-available", (info: UpdateInfo) => {
-      this.setState({ status: "not-available", updateAvailable: false, downloaded: false, latestVersion: info.version, releaseName: typeof info.releaseName === "string" ? info.releaseName : undefined, error: undefined });
-    });
-    this.updater.on("download-progress", (progress: ProgressInfo) => this.setState({ status: "downloading", progressPercent: progress.percent, error: undefined }));
-    this.updater.on("update-downloaded", (info: UpdateDownloadedEvent) => {
-      this.setState({ status: "downloaded", updateAvailable: true, downloaded: true, latestVersion: info.version, releaseName: typeof info.releaseName === "string" ? info.releaseName : undefined, progressPercent: 100, error: undefined });
-    });
-    this.updater.on("error", () => this.setState({ status: "error", error: appFailure("UPDATE_ERROR", "errors.updateFailed") }));
+    this.updater.allowPrerelease = false;
+    this.updater.allowDowngrade = false;
+    this.updater.on("checking-for-update", () => this.setState({ nativeUpdaterStatus: "checking" }));
+    this.updater.on("update-available", (info: UpdateInfo) => this.setState({ nativeUpdaterStatus: "available", status: "available", updateAvailable: true, downloaded: false, latestVersion: info.version, releaseName: typeof info.releaseName === "string" ? info.releaseName : this.state.releaseName, error: undefined }));
+    this.updater.on("update-not-available", (info: UpdateInfo) => this.setState({ nativeUpdaterStatus: "not-available", latestVersion: info.version, releaseName: typeof info.releaseName === "string" ? info.releaseName : this.state.releaseName }));
+    this.updater.on("download-progress", (progress: ProgressInfo) => this.setState({ status: "downloading", downloadStatus: "downloading", progressPercent: progress.percent }));
+    this.updater.on("update-downloaded", (info: UpdateDownloadedEvent) => this.setState({ status: "downloaded", updateAvailable: true, downloaded: true, downloadStatus: "downloaded", installStatus: "ready", latestVersion: info.version, releaseName: typeof info.releaseName === "string" ? info.releaseName : this.state.releaseName, progressPercent: 100, error: undefined }));
+    this.updater.on("error", () => this.setState({ nativeUpdaterStatus: "error", error: appFailure("UPDATE_NATIVE_CHECK_FAILED", "errors.updateNativeCheckFailed") }));
   }
 
   private automaticUpdateFailure(): AppResult<UpdateState> | undefined {
     if (this.support.status === "disabled") return this.supportFailure();
-    if (!this.support.supported || this.state.autoUpdateSupported !== true) {
-      return failedResult(appFailure("UPDATE_AUTOMATIC_UNAVAILABLE", "errors.updateAutomaticUnavailable"));
-    }
+    if (!this.support.supported || this.state.autoUpdateSupported !== true) return failedResult(appFailure("UPDATE_AUTOMATIC_UNAVAILABLE", "errors.updateAutomaticUnavailable"));
     return undefined;
   }
 
   private supportFailure(): AppResult<UpdateState> {
-    this.setState({ status: this.support.status, supported: false, comparison: this.support.status === "disabled" ? "disabled" : undefined, error: this.support.reason });
+    this.setState({ status: this.support.status, supported: false, comparison: this.support.status === "disabled" ? "disabled" : undefined, releaseLookupStatus: "idle", nativeUpdaterStatus: "unsupported", error: this.support.reason });
     return failedResult(this.support.reason ?? appFailure("UPDATE_UNSUPPORTED", "errors.updateUnsupported"));
-  }
-
-  private fail(code: string, messageKey: string, error: unknown, generation?: number): AppResult<UpdateState> {
-    if (generation !== undefined && generation !== this.checkGeneration) return { ok: true, data: this.getStatus() };
-    logMain("Update check failed", { code, error: error instanceof Error ? error.message : String(error) }, "warn");
-    const failure = appFailure(code, messageKey);
-    this.setState({ status: "error", comparison: "error", error: failure, lastCheckedAt: new Date().toISOString() });
-    return failedResult(failure);
-  }
-
-  private setStateForGeneration(generation: number, nextState: Partial<UpdateState>): void {
-    if (generation === this.checkGeneration) this.setState(nextState);
   }
 
   private setState(nextState: Partial<UpdateState>): void {
     this.state = { ...this.state, ...nextState };
     logMain("Update status changed", {
       status: this.state.status,
+      releaseLookupStatus: this.state.releaseLookupStatus,
+      nativeUpdaterStatus: this.state.nativeUpdaterStatus,
+      downloadStatus: this.state.downloadStatus,
+      installStatus: this.state.installStatus,
       supported: this.state.supported,
       updateAvailable: this.state.updateAvailable,
       downloaded: this.state.downloaded,
@@ -396,9 +365,9 @@ export class UpdateService {
   }
 }
 
-class UpdateTimeoutError extends Error {
+class DownloadTimeoutError extends Error {
   constructor() {
-    super("Update request timed out");
-    this.name = "UpdateTimeoutError";
+    super("Update download became inactive");
+    this.name = "DownloadTimeoutError";
   }
 }
