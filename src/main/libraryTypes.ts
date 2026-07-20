@@ -1,13 +1,14 @@
-import type { ImageMetadata, LibraryItem } from "../shared/types";
+import type { ArchiveImageLocation, ImageMetadata, LibraryItem } from "../shared/types";
 
 export interface InternalLibraryItem extends LibraryItem {
   cacheKey: string;
   originalPath?: string;
-  archive?: {
+  archiveFile?: {
     archivePath: string;
     entryName: string;
-    entryIndex: number;
+    archiveEntryIndex: number;
   };
+  archiveLocation?: ArchiveImageLocation;
 }
 
 export interface ResolvedImageFile {

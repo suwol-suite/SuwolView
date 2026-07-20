@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import iconv from "iconv-lite";
-import { crc32, decodeZipEntryName, listZipImageEntries } from "./archive";
+import { crc32, decodeZipEntryName, listZipImageEntries, listZipImageIndex } from "./archive";
 import { isArchiveEntryPathSafe, normalizeArchiveEntryName } from "./pathValidation";
 
 interface ZipFixtureEntry {
@@ -102,9 +102,43 @@ describe("archive path validation", () => {
         ])
       );
       await expect(listZipImageEntries(archivePath)).resolves.toEqual([
-        expect.objectContaining({ name: "만화/001화.png", normalizedName: "만화/001화.png" }),
-        expect.objectContaining({ name: "한글파일.png", normalizedName: "한글파일.png" })
+        expect.objectContaining({ rawPath: "만화/001화.png", normalizedPath: "만화/001화.png", displayPath: "만화/001화.png" }),
+        expect.objectContaining({ rawPath: "한글파일.png", normalizedPath: "한글파일.png", displayPath: "한글파일.png" })
       ]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds a recursive folder tree with natural ordering and a collapsed wrapper", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "suwol-archive-"));
+    try {
+      const archivePath = path.join(tempDir, "nested.cbz");
+      await writeFile(
+        archivePath,
+        makeStoredZip([
+          { name: Buffer.from("Comic/Season 2/Episode 10/page-2.jpg") },
+          { name: Buffer.from("Comic/Season 2/Episode 2/page-1.jpg") },
+          { name: Buffer.from("Comic/Season 1/page-1.jpg") },
+          { name: Buffer.from("Comic/Season 2/Episode 2/page-1.jpg") },
+          { name: Buffer.from("Comic/__MACOSX/._page.jpg") },
+          { name: Buffer.from("Comic/Thumbs.db") },
+          { name: Buffer.from("../outside.jpg") }
+        ])
+      );
+
+      const index = await listZipImageIndex(archivePath);
+      expect(index.commonRootPath).toBe("Comic");
+      expect(index.entries.map((entry) => entry.displayPath)).toEqual([
+        "Season 1/page-1.jpg",
+        "Season 2/Episode 2/page-1.jpg",
+        "Season 2/Episode 2/page-1.jpg",
+        "Season 2/Episode 10/page-2.jpg"
+      ]);
+      expect(new Set(index.entries.map((entry) => entry.id)).size).toBe(4);
+      expect(index.folders.map((folder) => folder.fullPath)).toEqual(["Comic/Season 1", "Comic/Season 2"]);
+      expect(index.folders[1].childFolders.map((folder) => folder.name)).toEqual(["Episode 2", "Episode 10"]);
+      expect(index.folders[1].childFolders[0].descendantImageCount).toBe(2);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

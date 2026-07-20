@@ -3,15 +3,28 @@ import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import * as yauzl from "yauzl";
-import { getImageSupport, sortImageNames } from "../shared/formats";
+import { getImageSupport } from "../shared/formats";
+import type { ArchiveFolderNode } from "../shared/types";
 import { ensureInside, normalizeArchiveEntryName } from "./pathValidation";
 
 export interface ArchiveImageEntry {
-  entryIndex: number;
-  name: string;
-  normalizedName: string;
+  id: string;
+  archiveEntryIndex: number;
+  rawPath: string;
+  normalizedPath: string;
+  displayPath: string;
+  fileName: string;
+  parentPath: string;
+  pathSegments: string[];
+  extension: string;
   sizeBytes?: number;
   modifiedAt?: string;
+}
+
+export interface ArchiveIndex {
+  entries: ArchiveImageEntry[];
+  folders: ArchiveFolderNode[];
+  commonRootPath?: string;
 }
 
 function openZip(zipPath: string): Promise<yauzl.ZipFile> {
@@ -107,9 +120,86 @@ function decodedEntryName(entry: yauzl.Entry): string {
   return decodeZipEntryName(rawFileName(entry), entry.generalPurposeBitFlag, entry.extraFields);
 }
 
-export async function listZipImageEntries(zipPath: string): Promise<ArchiveImageEntry[]> {
+function isArchiveMetadataPath(normalizedPath: string): boolean {
+  const segments = normalizedPath.split("/");
+  const lowerSegments = segments.map((segment) => segment.toLowerCase());
+  const fileName = lowerSegments.at(-1) ?? "";
+  return lowerSegments.includes("__macosx")
+    || fileName === ".ds_store"
+    || fileName === "thumbs.db"
+    || fileName === "desktop.ini"
+    || fileName.startsWith("._");
+}
+
+function pathSegments(normalizedPath: string): string[] {
+  return normalizedPath.split("/").filter(Boolean);
+}
+
+function commonRootPath(entries: readonly ArchiveImageEntry[]): string | undefined {
+  const roots = new Set(entries.map((entry) => entry.pathSegments[0]).filter(Boolean));
+  if (roots.size !== 1 || entries.some((entry) => entry.pathSegments.length < 2)) return undefined;
+  const root = [...roots][0];
+  if (entries.some((entry) => entry.parentPath === root)) return undefined;
+  return root;
+}
+
+function createFolderTree(entries: readonly ArchiveImageEntry[], directoryPaths: readonly string[], commonRoot?: string): ArchiveFolderNode[] {
+  const folderPaths = new Set<string>(directoryPaths.filter(Boolean));
+  for (const entry of entries) {
+    for (let index = 1; index < entry.pathSegments.length; index += 1) {
+      folderPaths.add(entry.pathSegments.slice(0, index).join("/"));
+    }
+  }
+
+  const nodes = new Map<string, ArchiveFolderNode>();
+  for (const fullPath of [...folderPaths].sort((left, right) => {
+    const leftDepth = pathSegments(left).length;
+    const rightDepth = pathSegments(right).length;
+    return leftDepth - rightDepth || left.localeCompare(right, "en-US", { sensitivity: "base" });
+  })) {
+    const segments = pathSegments(fullPath);
+    const parentPath = segments.length > 1 ? segments.slice(0, -1).join("/") : null;
+    nodes.set(fullPath, {
+      id: `folder:${fullPath}`,
+      name: segments.at(-1) ?? fullPath,
+      fullPath,
+      parentPath,
+      childFolders: [],
+      imageEntryIds: [],
+      descendantImageCount: 0
+    });
+  }
+
+  for (const entry of entries) {
+    const folder = nodes.get(entry.parentPath);
+    if (folder) folder.imageEntryIds.push(entry.id);
+  }
+
+  for (const node of nodes.values()) {
+    if (node.parentPath) nodes.get(node.parentPath)?.childFolders.push(node);
+  }
+
+  const countDescendants = (node: ArchiveFolderNode): number => {
+    node.childFolders.sort((left, right) => left.name.localeCompare(right.name, "en-US", { numeric: true, sensitivity: "base" }));
+    node.descendantImageCount = node.imageEntryIds.length + node.childFolders.reduce((sum, child) => sum + countDescendants(child), 0);
+    return node.descendantImageCount;
+  };
+  for (const node of nodes.values()) {
+    if (node.parentPath === null) countDescendants(node);
+  }
+
+  const roots = [...nodes.values()].filter((node) => {
+    if (!commonRoot) return node.parentPath === null;
+    if (node.fullPath === commonRoot) return false;
+    return node.parentPath === commonRoot || !node.fullPath.startsWith(`${commonRoot}/`);
+  });
+  return roots.sort((left, right) => left.name.localeCompare(right.name, "en-US", { numeric: true, sensitivity: "base" }));
+}
+
+export async function listZipImageIndex(zipPath: string): Promise<ArchiveIndex> {
   const zipFile = await openZip(zipPath);
   const entries: ArchiveImageEntry[] = [];
+  const directoryPaths: string[] = [];
   let entryIndex = 0;
 
   return new Promise((resolve, reject) => {
@@ -117,13 +207,24 @@ export async function listZipImageEntries(zipPath: string): Promise<ArchiveImage
       const currentEntryIndex = entryIndex;
       entryIndex += 1;
       try {
-        const decodedName = decodedEntryName(entry);
-        if (!decodedName.endsWith("/") && getImageSupport(decodedName)) {
-          const normalizedName = normalizeArchiveEntryName(decodedName);
+        const rawPath = decodedEntryName(entry);
+        const isDirectory = /[\\/]$/.test(rawPath);
+        const normalizedPath = normalizeArchiveEntryName(rawPath.replace(/[\\/]+$/, ""));
+        if (isDirectory) {
+          if (!isArchiveMetadataPath(normalizedPath)) directoryPaths.push(normalizedPath);
+        } else if (!isArchiveMetadataPath(normalizedPath) && getImageSupport(normalizedPath) && entry.uncompressedSize > 0) {
+          const segments = pathSegments(normalizedPath);
+          const parentPath = segments.slice(0, -1).join("/");
           entries.push({
-            entryIndex: currentEntryIndex,
-            name: normalizedName,
-            normalizedName,
+            id: `entry:${currentEntryIndex}:${normalizedPath}`,
+            archiveEntryIndex: currentEntryIndex,
+            rawPath,
+            normalizedPath,
+            displayPath: normalizedPath,
+            fileName: segments.at(-1) ?? normalizedPath,
+            parentPath,
+            pathSegments: segments,
+            extension: getImageSupport(normalizedPath)?.extension ?? "",
             sizeBytes: entry.uncompressedSize,
             modifiedAt: entry.getLastModDate()?.toISOString()
           });
@@ -134,10 +235,34 @@ export async function listZipImageEntries(zipPath: string): Promise<ArchiveImage
       zipFile.readEntry();
     });
 
-    zipFile.on("end", () => resolve(sortImageNames(entries)));
+    zipFile.on("end", () => {
+      const sortedEntries = [...entries].sort((left, right) => {
+        const segmentCount = Math.max(left.pathSegments.length, right.pathSegments.length);
+        for (let index = 0; index < segmentCount; index += 1) {
+          const result = (left.pathSegments[index] ?? "").localeCompare(right.pathSegments[index] ?? "", "en-US", {
+            numeric: true,
+            sensitivity: "base"
+          });
+          if (result !== 0) return result;
+        }
+        return left.normalizedPath.localeCompare(right.normalizedPath, "en-US", { sensitivity: "base" })
+          || left.archiveEntryIndex - right.archiveEntryIndex;
+      });
+      const commonRoot = commonRootPath(sortedEntries);
+      for (const entry of sortedEntries) {
+        entry.displayPath = commonRoot && entry.normalizedPath.startsWith(`${commonRoot}/`)
+          ? entry.normalizedPath.slice(commonRoot.length + 1)
+          : entry.normalizedPath;
+      }
+      resolve({ entries: sortedEntries, folders: createFolderTree(sortedEntries, directoryPaths, commonRoot), commonRootPath: commonRoot });
+    });
     zipFile.on("error", reject);
     zipFile.readEntry();
   });
+}
+
+export async function listZipImageEntries(zipPath: string): Promise<ArchiveImageEntry[]> {
+  return (await listZipImageIndex(zipPath)).entries;
 }
 
 export async function extractZipEntry(
@@ -177,8 +302,8 @@ export async function extractZipEntry(
       }
 
       const matches = requestedEntryIndex === undefined
-        ? normalizedName === normalizedRequestedName
-        : currentEntryIndex === requestedEntryIndex && normalizedName === normalizedRequestedName;
+          ? normalizedName === normalizedRequestedName
+          : currentEntryIndex === requestedEntryIndex && normalizedName === normalizedRequestedName;
       if (!matches) {
         zipFile.readEntry();
         return;

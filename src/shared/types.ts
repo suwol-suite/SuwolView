@@ -3,6 +3,7 @@ import type { AppLanguageSetting, LocaleInfo } from "./i18n/types";
 export type ThemeMode = "dark" | "light";
 export type ChromeBarMode = "auto" | "always";
 export type SourceKind = "folder" | "archive" | "file";
+export type ArchiveBrowseMode = "continuous" | "folder";
 export type SupportLevel = "native" | "converted" | "experimental" | "external";
 export type ImageViewMode =
   | "original"
@@ -51,6 +52,35 @@ export interface LibraryItem {
   displayUrl: string;
   thumbnailUrl: string;
   containerName?: string;
+  archive?: ArchiveImageLocation;
+}
+
+export interface ArchiveImageLocation {
+  id: string;
+  archiveEntryIndex: number;
+  rawPath: string;
+  normalizedPath: string;
+  displayPath: string;
+  fileName: string;
+  parentPath: string;
+  pathSegments: string[];
+  extension: string;
+  sizeBytes?: number;
+}
+
+export interface ArchiveFolderNode {
+  id: string;
+  name: string;
+  fullPath: string;
+  parentPath: string | null;
+  childFolders: ArchiveFolderNode[];
+  imageEntryIds: string[];
+  descendantImageCount: number;
+}
+
+export interface ArchiveStructure {
+  folders: ArchiveFolderNode[];
+  commonRootPath?: string;
 }
 
 export interface OpenLibraryResult {
@@ -58,6 +88,7 @@ export interface OpenLibraryResult {
   items: LibraryItem[];
   selectedIndex: number;
   recent: RecentSource[];
+  archive?: ArchiveStructure;
 }
 
 export type AppResult<T> = { ok: true; data: T } | ({ ok: false } & AppError);
@@ -134,6 +165,9 @@ export interface Preferences extends PanelPreferences, ChromePreferences, Update
   theme: ThemeMode;
   language: AppLanguageSetting;
   recent: RecentSource[];
+  lastLaunchVersion?: string;
+  lastMacUpdateCleanupVersion?: string;
+  lastMacUpdateCleanupResult?: "success" | "partial" | "failed" | "skipped";
 }
 
 export interface BasicMetadata {

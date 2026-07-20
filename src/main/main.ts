@@ -28,6 +28,7 @@ import { SettingsStore } from "./settings";
 import { extractLaunchPathArguments } from "./startupOpen";
 import { resolveDefaultAppsRequest } from "./systemSettings";
 import { UpdateService } from "./updateService";
+import { runMacUpdateCleanup } from "./updateCleanup";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -637,6 +638,16 @@ if (hasSingleInstanceLock) void app.whenReady().then(async () => {
 
   const settings = new SettingsStore(app.getPath("userData"));
   const preferences = await settings.load({ safeMode });
+  await runMacUpdateCleanup({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    version: app.getVersion(),
+    executablePath: app.getPath("exe"),
+    bundleIdentifier: "org.suwolview.app",
+    appName: app.getName(),
+    userDataPath: app.getPath("userData"),
+    settings
+  });
   nativeTheme.themeSource = preferences.theme;
 
   const decoder = new DecoderLayer(cache, { safeMode });

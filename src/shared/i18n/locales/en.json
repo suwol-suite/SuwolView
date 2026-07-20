@@ -76,6 +76,24 @@
   "sidebar": {
     "thumbnails": "Thumbnails"
   },
+  "archive": {
+    "browseArchive": "Archive folders",
+    "allImages": "All images",
+    "continuousView": "Continuous view",
+    "folderView": "Folder view",
+    "folder": "Folder",
+    "noImages": "No images",
+    "noImagesInFolder": "No images in this folder",
+    "subfolders": "Subfolders",
+    "currentFolder": "Current folder",
+    "expandFolder": "Expand folder",
+    "collapseFolder": "Collapse folder",
+    "previousRegistrationCleanup": "Clean up previous version registration",
+    "updateRegistrationRefresh": "Refresh app registration after update",
+    "registrationCleanup": "Refresh file registration after update",
+    "registrationCleanupSuccess": "File registration refreshed.",
+    "registrationCleanupFailed": "File registration refresh could not be completed."
+  },
   "metadata": {
     "info": "Info",
     "file": "File",

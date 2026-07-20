@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -52,6 +53,8 @@ import { DEFAULT_VIEWER_PREFERENCES } from "../shared/viewerPreferences";
 import type {
   AppLanguageSetting,
   AppError,
+  ArchiveBrowseMode,
+  ArchiveFolderNode,
   CacheStats,
   ChromeBarMode,
   ImageFilterPreset,
@@ -330,10 +333,17 @@ export function App(): React.ReactElement {
   const [error, setError] = useState<string | undefined>();
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [toolbarMenu, setToolbarMenu] = useState<ToolbarMenu | undefined>();
+  const [archiveBrowseMode, setArchiveBrowseMode] = useState<ArchiveBrowseMode>("continuous");
+  const [archiveFolderPath, setArchiveFolderPath] = useState<string | undefined>();
+  const [collapsedArchiveFolders, setCollapsedArchiveFolders] = useState<Set<string>>(new Set());
 
   const items = library?.items ?? [];
-  const currentItem = items[currentIndex];
-  const itemCount = items.length;
+  const visibleItems = useMemo(() => {
+    if (library?.source.kind !== "archive" || archiveBrowseMode === "continuous") return items;
+    return items.filter((item) => item.archive?.parentPath === archiveFolderPath);
+  }, [archiveBrowseMode, archiveFolderPath, items, library?.source.kind]);
+  const currentItem = visibleItems[currentIndex];
+  const itemCount = visibleItems.length;
   const resolvedLanguage = resolveAppLanguage(language, localeCandidates(localeInfo));
 
   useEffect(() => {
@@ -348,8 +358,8 @@ export function App(): React.ReactElement {
     return imageSize;
   }, [imageSize, metadata]);
 
-  const twoPageItems = useMemo(() => selectTwoPageItems(items, currentIndex, viewMode), [currentIndex, items, viewMode]);
-  const webtoonItems = useMemo(() => selectWebtoonItems(items), [items]);
+  const twoPageItems = useMemo(() => selectTwoPageItems(visibleItems, currentIndex, viewMode), [currentIndex, visibleItems, viewMode]);
+  const webtoonItems = useMemo(() => selectWebtoonItems(visibleItems), [visibleItems]);
 
   const calculateViewZoom = useCallback((
     mode: ViewMode,
@@ -378,6 +388,9 @@ export function App(): React.ReactElement {
     if (!result) return;
     setLibrary(result);
     setRecent(result.recent);
+    setArchiveBrowseMode("continuous");
+    setArchiveFolderPath(undefined);
+    setCollapsedArchiveFolders(new Set());
     setCurrentIndex(result.selectedIndex);
     setImageSize(undefined);
     setMetadata(undefined);
@@ -485,6 +498,21 @@ export function App(): React.ReactElement {
 
   const nextImage = useCallback(() => moveTo(currentIndex + 1), [currentIndex, moveTo]);
   const previousImage = useCallback(() => moveTo(currentIndex - 1), [currentIndex, moveTo]);
+
+  const selectArchiveFolder = useCallback((folderPath: string | undefined) => {
+    const nextItems = folderPath === undefined
+      ? items
+      : items.filter((item) => item.archive?.parentPath === folderPath);
+    const currentId = currentItem?.id;
+    const selectedIndex = currentId ? nextItems.findIndex((item) => item.id === currentId) : -1;
+    setArchiveBrowseMode(folderPath === undefined ? "continuous" : "folder");
+    setArchiveFolderPath(folderPath);
+    setCurrentIndex(selectedIndex >= 0 ? selectedIndex : 0);
+    setImageSize(undefined);
+    setMetadata(undefined);
+    setMetadataError(undefined);
+    setPan({ x: 0, y: 0 });
+  }, [currentItem?.id, items]);
 
   const setViewMode = useCallback((mode: ViewMode) => {
     const nextUpscaleSmallImages = mode === "original" || mode === "webtoon" ? upscaleSmallImages : true;
@@ -1470,17 +1498,36 @@ export function App(): React.ReactElement {
       <main className={`workspace ${isResizingPanel ? "resizing-panel" : ""}`} style={workspaceStyle}>
         {leftPanelVisible && (
           <aside className="thumbnail-panel side-panel-scroll">
-            {items.map((item) => (
+            {library?.source.kind === "archive" && library.archive && (
+              <ArchiveBrowser
+                folders={library.archive.folders}
+                mode={archiveBrowseMode}
+                selectedPath={archiveFolderPath}
+                currentFolderPath={currentItem?.archive?.parentPath}
+                collapsedFolders={collapsedArchiveFolders}
+                onSelectFolder={selectArchiveFolder}
+                onToggleFolder={(folderPath) => {
+                  setCollapsedArchiveFolders((current) => {
+                    const next = new Set(current);
+                    if (next.has(folderPath)) next.delete(folderPath);
+                    else next.add(folderPath);
+                    return next;
+                  });
+                }}
+                t={t}
+              />
+            )}
+            {visibleItems.map((item) => (
               <button
-                className={`thumbnail-item ${item.index === currentIndex ? "active" : ""}`}
+                className={`thumbnail-item ${item.id === currentItem?.id ? "active" : ""}`}
                 key={item.id}
-                onClick={() => moveTo(item.index)}
-                title={item.name}
+                onClick={() => moveTo(visibleItems.findIndex((candidate) => candidate.id === item.id))}
+                title={item.archive?.displayPath ?? item.name}
               >
                 <span className="thumbnail-frame">
                   <img src={item.thumbnailUrl} alt="" draggable={false} loading="lazy" />
                 </span>
-                <span className="thumbnail-name">{item.name}</span>
+                <span className="thumbnail-name">{item.archive?.displayPath ?? item.name}</span>
               </button>
             ))}
           </aside>
@@ -1511,7 +1558,7 @@ export function App(): React.ReactElement {
           {!currentItem && (
             <div className="empty-state">
               <ImageIcon size={48} />
-              <span>{t("viewer.emptyTitle")}</span>
+              <span>{archiveBrowseMode === "folder" ? t("archive.noImagesInFolder") : t("viewer.emptyTitle")}</span>
             </div>
           )}
 
@@ -1563,12 +1610,12 @@ export function App(): React.ReactElement {
               {webtoonItems.map((item) => (
                 <img
                   key={item.id}
-                  className={`${webtoonImageClassName} ${item.index === currentIndex ? "active" : ""}`}
+                  className={`${webtoonImageClassName} ${item.id === currentItem.id ? "active" : ""}`}
                   src={item.displayUrl}
                   alt={item.name}
                   draggable={false}
                   loading="lazy"
-                  onClick={() => moveTo(item.index)}
+                  onClick={() => moveTo(visibleItems.findIndex((candidate) => candidate.id === item.id))}
                 />
               ))}
             </div>
@@ -1651,7 +1698,7 @@ export function App(): React.ReactElement {
       <footer
         className={`status-bar chrome-bar chrome-bottom auto ${bottomBarVisible ? "visible" : ""}`}
       >
-        <span className="status-file">{currentItem?.name ?? t("common.noFileSelected")}</span>
+        <span className="status-file">{currentItem?.archive?.displayPath ?? currentItem?.name ?? t("common.noFileSelected")}</span>
         <span>{statusResolution}</span>
         {showZoomPercent && <span>{zoomPercent}%</span>}
         <span>
@@ -2075,6 +2122,115 @@ function PreferencesModal({
   );
 }
 
+function ArchiveBrowser({
+  folders,
+  mode,
+  selectedPath,
+  currentFolderPath,
+  collapsedFolders,
+  onSelectFolder,
+  onToggleFolder,
+  t
+}: {
+  folders: ArchiveFolderNode[];
+  mode: ArchiveBrowseMode;
+  selectedPath?: string;
+  currentFolderPath?: string;
+  collapsedFolders: Set<string>;
+  onSelectFolder: (folderPath: string | undefined) => void;
+  onToggleFolder: (folderPath: string) => void;
+  t: TFunction;
+}): React.ReactElement {
+  return (
+    <div className="archive-browser" aria-label={t("archive.browseArchive")}>
+      <div className="archive-browser-heading">{t("archive.browseArchive")}</div>
+      <button
+        className={`archive-tree-root ${mode === "continuous" ? "active" : ""}`}
+        onClick={() => onSelectFolder(undefined)}
+        type="button"
+      >
+        <FolderOpen size={15} />
+        <span>{t("archive.allImages")}</span>
+      </button>
+      <div className="archive-tree" role="tree">
+        {folders.map((folder) => (
+          <ArchiveFolderTreeNode
+            key={folder.id}
+            node={folder}
+            depth={0}
+            selectedPath={selectedPath}
+            currentFolderPath={currentFolderPath}
+            collapsedFolders={collapsedFolders}
+            onSelectFolder={onSelectFolder}
+            onToggleFolder={onToggleFolder}
+            t={t}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ArchiveFolderTreeNode({
+  node,
+  depth,
+  selectedPath,
+  currentFolderPath,
+  collapsedFolders,
+  onSelectFolder,
+  onToggleFolder,
+  t
+}: {
+  node: ArchiveFolderNode;
+  depth: number;
+  selectedPath?: string;
+  currentFolderPath?: string;
+  collapsedFolders: Set<string>;
+  onSelectFolder: (folderPath: string) => void;
+  onToggleFolder: (folderPath: string) => void;
+  t: TFunction;
+}): React.ReactElement {
+  const hasChildren = node.childFolders.length > 0;
+  const collapsed = collapsedFolders.has(node.fullPath);
+  return (
+    <div className="archive-tree-node" role="treeitem" aria-expanded={hasChildren ? !collapsed : undefined}>
+      <div
+        className={`archive-tree-row ${selectedPath === node.fullPath ? "active" : ""} ${currentFolderPath === node.fullPath ? "current" : ""}`}
+        style={{ paddingLeft: `${8 + depth * 14}px` }}
+      >
+        {hasChildren ? (
+          <button
+            aria-label={collapsed ? t("archive.expandFolder") : t("archive.collapseFolder")}
+            className="archive-tree-toggle"
+            onClick={() => onToggleFolder(node.fullPath)}
+            type="button"
+          >
+            {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+          </button>
+        ) : <span className="archive-tree-toggle-spacer" />}
+        <button className="archive-tree-folder" onClick={() => onSelectFolder(node.fullPath)} type="button" title={node.fullPath}>
+          <FolderOpen size={14} />
+          <span className="archive-tree-label">{node.name}</span>
+          <span className="archive-tree-count">{node.descendantImageCount}</span>
+        </button>
+      </div>
+      {!collapsed && node.childFolders.map((child) => (
+        <ArchiveFolderTreeNode
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          selectedPath={selectedPath}
+          currentFolderPath={currentFolderPath}
+          collapsedFolders={collapsedFolders}
+          onSelectFolder={onSelectFolder}
+          onToggleFolder={onToggleFolder}
+          t={t}
+        />
+      ))}
+    </div>
+  );
+}
+
 function MetadataPanel({
   item,
   metadata,
@@ -2098,7 +2254,7 @@ function MetadataPanel({
 
   return (
     <div className="metadata-content">
-      <InfoRow label={t("metadata.file")} value={item.name} />
+      <InfoRow label={t("metadata.file")} value={item.archive?.displayPath ?? item.name} />
       <InfoRow label={t("metadata.container")} value={item.containerName ?? item.sourceKind} />
       <InfoRow label={t("metadata.format")} value={item.extension.toUpperCase()} />
       <InfoRow label={t("metadata.support")} value={t(`formats.${item.support.level}`)} />

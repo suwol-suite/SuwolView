@@ -76,6 +76,24 @@
   "sidebar": {
     "thumbnails": "썸네일"
   },
+  "archive": {
+    "browseArchive": "압축파일 폴더",
+    "allImages": "전체 이미지",
+    "continuousView": "전체 연속 보기",
+    "folderView": "폴더별 보기",
+    "folder": "폴더",
+    "noImages": "이미지 없음",
+    "noImagesInFolder": "이 폴더에는 이미지가 없습니다",
+    "subfolders": "하위 폴더",
+    "currentFolder": "현재 폴더",
+    "expandFolder": "폴더 펼치기",
+    "collapseFolder": "폴더 접기",
+    "previousRegistrationCleanup": "이전 버전 등록 정리",
+    "updateRegistrationRefresh": "업데이트 후 앱 등록 갱신",
+    "registrationCleanup": "업데이트 후 파일 등록 새로고침",
+    "registrationCleanupSuccess": "파일 등록을 새로고쳤습니다.",
+    "registrationCleanupFailed": "파일 등록을 새로고치지 못했습니다."
+  },
   "metadata": {
     "info": "정보",
     "file": "파일",

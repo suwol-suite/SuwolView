@@ -167,12 +167,12 @@ export class DecoderLayer {
     if (item.originalPath) {
       return item.originalPath;
     }
-    if (!item.archive) {
+    if (!item.archiveFile) {
       throw new Error("Item has no source path.");
     }
 
     const extractedPath = this.cache.archiveEntryPath(item.id, item.cacheKey, item.extension);
-    await extractZipEntry(item.archive.archivePath, item.archive.entryName, extractedPath, this.cache.archiveRoot, item.archive.entryIndex);
+    await extractZipEntry(item.archiveFile.archivePath, item.archiveFile.entryName, extractedPath, this.cache.archiveRoot, item.archiveFile.archiveEntryIndex);
     return extractedPath;
   }
 }

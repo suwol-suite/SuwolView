@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { listZipImageEntries } from "./archive";
+import { listZipImageIndex } from "./archive";
 import type { DecoderLayer } from "./decoder";
 import { getImageSupport, isArchive, isSupportedImage, normalizeExtension, sortImageNames } from "../shared/formats";
 import type { AppResult, ImageMetadata, LibraryItem, LibrarySource, OpenLibraryResult, SourceKind } from "../shared/types";
@@ -138,26 +138,26 @@ export class LibraryManager {
       throw new Error("Selected file is not a supported archive.");
     }
 
-    const entries = await listZipImageEntries(resolvedArchivePath);
-    if (entries.length === 0) {
+    const archiveIndex = await listZipImageIndex(resolvedArchivePath);
+    if (archiveIndex.entries.length === 0) {
       throw new Error("No supported images were found in the archive.");
     }
 
     const source = this.createSource("archive", resolvedArchivePath);
     const archiveCacheKey = itemCacheKey([String(archiveStats.mtimeMs), String(archiveStats.size)]);
-    const items: InternalLibraryItem[] = entries.map((entry, index) => {
-      const support = getImageSupport(entry.normalizedName);
+    const items: InternalLibraryItem[] = archiveIndex.entries.map((entry, index) => {
+      const support = getImageSupport(entry.normalizedPath);
       if (!support) {
-        throw new Error(`Unsupported archive entry: ${entry.normalizedName}`);
+        throw new Error(`Unsupported archive entry: ${entry.normalizedPath}`);
       }
-      const id = stableHash(`archive:${resolvedArchivePath}:${entry.entryIndex}:${entry.normalizedName}`);
-      const cacheKey = itemCacheKey([archiveCacheKey, String(entry.entryIndex), entry.normalizedName, String(entry.sizeBytes ?? 0)]);
+      const id = stableHash(`archive:${resolvedArchivePath}:${entry.archiveEntryIndex}:${entry.normalizedPath}`);
+      const cacheKey = itemCacheKey([archiveCacheKey, String(entry.archiveEntryIndex), entry.normalizedPath, String(entry.sizeBytes ?? 0)]);
       return {
         id,
         sourceId: source.id,
         sourceKind: source.kind,
-        name: entry.name,
-        extension: normalizeExtension(entry.normalizedName),
+        name: entry.fileName,
+        extension: normalizeExtension(entry.normalizedPath),
         index,
         sizeBytes: entry.sizeBytes,
         modifiedAt: entry.modifiedAt,
@@ -166,15 +166,30 @@ export class LibraryManager {
         thumbnailUrl: imageProtocolUrl("thumbnail", id, cacheKey),
         containerName: path.basename(resolvedArchivePath),
         cacheKey,
-        archive: {
+        archiveFile: {
           archivePath: resolvedArchivePath,
-          entryName: entry.normalizedName,
-          entryIndex: entry.entryIndex
+          entryName: entry.normalizedPath,
+          archiveEntryIndex: entry.archiveEntryIndex
+        },
+        archiveLocation: {
+          id: entry.id,
+          archiveEntryIndex: entry.archiveEntryIndex,
+          rawPath: entry.rawPath,
+          normalizedPath: entry.normalizedPath,
+          displayPath: entry.displayPath,
+          fileName: entry.fileName,
+          parentPath: entry.parentPath,
+          pathSegments: [...entry.pathSegments],
+          extension: entry.extension,
+          sizeBytes: entry.sizeBytes
         }
       };
     });
 
-    return this.setCurrent(source, items, 0);
+    return this.setCurrent(source, items, 0, {
+      folders: archiveIndex.folders,
+      commonRootPath: archiveIndex.commonRootPath
+    });
   }
 
   async resolveDisplayFile(itemId: string): Promise<ResolvedImageFile> {
@@ -234,7 +249,7 @@ export class LibraryManager {
     };
   }
 
-  private setCurrent(source: LibrarySource, items: InternalLibraryItem[], selectedIndex: number): OpenLibraryResult {
+  private setCurrent(source: LibrarySource, items: InternalLibraryItem[], selectedIndex: number, archive?: OpenLibraryResult["archive"]): OpenLibraryResult {
     this.current = {
       source,
       items,
@@ -244,7 +259,8 @@ export class LibraryManager {
       source,
       items: items.map((item) => this.publicItem(item)),
       selectedIndex,
-      recent: []
+      recent: [],
+      archive
     };
   }
 
@@ -263,7 +279,11 @@ export class LibraryManager {
       support: item.support,
       displayUrl: item.displayUrl,
       thumbnailUrl: item.thumbnailUrl,
-      containerName: item.containerName
+      containerName: item.containerName,
+      archive: item.archiveLocation ? {
+        ...item.archiveLocation,
+        pathSegments: [...item.archiveLocation.pathSegments]
+      } : undefined
     };
   }
 

@@ -297,6 +297,109 @@ button {
   border-right: 1px solid var(--line);
 }
 
+.archive-browser {
+  margin: -2px -2px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.archive-browser-heading {
+  padding: 4px 6px 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.archive-tree-root,
+.archive-tree-folder,
+.archive-tree-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.archive-tree-root {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.archive-tree-root:hover,
+.archive-tree-root.active {
+  background: var(--panel-strong);
+  color: var(--accent-strong);
+}
+
+.archive-tree-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 6px;
+}
+
+.archive-tree-row:hover,
+.archive-tree-row.current,
+.archive-tree-row.active {
+  background: var(--panel-strong);
+}
+
+.archive-tree-toggle {
+  display: grid;
+  flex: 0 0 20px;
+  place-items: center;
+  width: 20px;
+  height: 26px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.archive-tree-toggle:hover {
+  color: var(--accent-strong);
+}
+
+.archive-tree-toggle-spacer {
+  flex: 0 0 20px;
+}
+
+.archive-tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  height: 26px;
+  padding: 0 6px 0 2px;
+  text-align: left;
+}
+
+.archive-tree-row.active .archive-tree-folder,
+.archive-tree-row.current .archive-tree-folder {
+  color: var(--accent-strong);
+}
+
+.archive-tree-label {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.archive-tree-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .side-panel-scroll {
   padding-bottom: 12px;
 }

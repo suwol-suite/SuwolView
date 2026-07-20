@@ -67,7 +67,7 @@ export function isArchive(fileName: string): boolean {
 }
 
 export function compareNaturalName(a: string, b: string): number {
-  return a.localeCompare(b, undefined, {
+  return a.localeCompare(b, "en-US", {
     numeric: true,
     sensitivity: "base"
   });

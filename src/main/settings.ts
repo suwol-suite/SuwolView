@@ -199,6 +199,19 @@ export class SettingsStore {
     return this.get();
   }
 
+  async recordLaunchVersion(version: string): Promise<Preferences> {
+    this.preferences.lastLaunchVersion = version;
+    await this.save();
+    return this.get();
+  }
+
+  async recordMacUpdateCleanup(version: string, result: "success" | "partial" | "failed" | "skipped"): Promise<Preferences> {
+    this.preferences.lastMacUpdateCleanupVersion = version;
+    this.preferences.lastMacUpdateCleanupResult = result;
+    await this.save();
+    return this.get();
+  }
+
   findRecent(sourceId: string): RecentSource | undefined {
     return this.preferences.recent.find((source) => source.id === sourceId);
   }
