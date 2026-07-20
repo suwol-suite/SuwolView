@@ -79,9 +79,9 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows: `SuwolView-0.2.8-setup.exe` is recommended. `SuwolView-0.2.8-win-x64.zip` is the portable package.
-- Linux: `SuwolView-0.2.8-linux-x64.AppImage` is recommended. `SuwolView-0.2.8-linux-x64.tar.gz` is the portable package.
-- macOS: `SuwolView-0.2.8-mac-arm64.dmg` is recommended. `SuwolView-0.2.8-mac-arm64.zip` is the update/archive package.
+- Windows: `SuwolView-0.2.9-setup.exe` is recommended. `SuwolView-0.2.9-win-x64.zip` is the portable package.
+- Linux: `SuwolView-0.2.9-linux-x64.AppImage` is recommended. `SuwolView-0.2.9-linux-x64.tar.gz` is the portable package.
+- macOS: `SuwolView-0.2.9-mac-arm64.dmg` is recommended. `SuwolView-0.2.9-mac-arm64.zip` is the update/archive package.
 
 Windows and Linux assets may appear first. macOS Apple Silicon assets can be
 attached later to the same GitHub Release after Apple notarization and stapling

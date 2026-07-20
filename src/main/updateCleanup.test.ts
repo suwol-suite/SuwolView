@@ -38,7 +38,7 @@ describe("macOS update cleanup lifecycle", () => {
     await runMacUpdateCleanup({
       platform: "darwin",
       isPackaged: true,
-      version: "0.2.8",
+      version: "0.2.9",
       executablePath: "/Applications/SuwolView.app/Contents/MacOS/SuwolView",
       bundleIdentifier: "org.suwolview.app",
       appName: "SuwolView",
@@ -46,7 +46,7 @@ describe("macOS update cleanup lifecycle", () => {
       settings,
       runner: async () => { calls += 1; return { code: 0, stdout: "", stderr: "" }; }
     });
-    expect(versions).toEqual(["0.2.8"]);
+    expect(versions).toEqual(["0.2.9"]);
     expect(calls).toBe(0);
   });
 
@@ -61,7 +61,7 @@ describe("macOS update cleanup lifecycle", () => {
     await expect(runMacUpdateCleanup({
       platform: "darwin",
       isPackaged: true,
-      version: "0.2.8",
+      version: "0.2.9",
       executablePath: "/Applications/SuwolView.app/Contents/MacOS/SuwolView",
       bundleIdentifier: "org.suwolview.app",
       appName: "SuwolView",
