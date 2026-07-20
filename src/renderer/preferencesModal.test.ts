@@ -45,6 +45,32 @@ describe("preferences modal", () => {
     expect(updatesPanel).toContain('t("settings.portableUpdateNote")');
   });
 
+  it("renders file association guidance through runtime platform branches", async () => {
+    const source = await readApp();
+    const panelStart = source.indexOf('activeTab === "fileAssociations"');
+    const panel = source.slice(panelStart, source.indexOf('activeTab === "maintenance"', panelStart));
+
+    expect(panel).toContain("showWindowsFileAssociationControls");
+    expect(panel).toContain("showMacFileAssociationInstructions");
+    expect(panel).toContain("showLinuxFileAssociationInstructions");
+    expect(panel).toContain('t("settings.macAssociationNote")');
+    expect(panel).toContain('t("settings.linuxAssociationNote")');
+    expect(panel).toContain('t("settings.openWindowsDefaultApps")');
+  });
+
+  it("handles PageUp/PageDown only in the non-webtoon viewer", async () => {
+    const source = await readApp();
+    const start = source.indexOf("event.key === \"PageDown\"");
+    const end = source.indexOf("const handleWheel", start);
+    const pageHandler = source.slice(start, end);
+
+    expect(pageHandler).toContain("event.preventDefault()");
+    expect(pageHandler).toContain("viewMode !== \"webtoon\"");
+    expect(pageHandler).toContain("!editableTarget");
+    expect(pageHandler).toContain("nextImage()");
+    expect(pageHandler).toContain("previousImage()");
+  });
+
   it("keeps advanced view modes and rendering options in preferences", async () => {
     const source = await readApp();
     const viewerStart = source.indexOf('activeTab === "viewer"');

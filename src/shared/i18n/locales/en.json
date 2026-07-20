@@ -122,6 +122,8 @@
     "executablePathCopied": "Executable path copied.",
     "portableAssociationNote": "The portable ZIP build does not automatically register file associations.",
     "installerAssociationNote": "Use the Windows installer or choose SuwolView in Windows Default Apps.",
+    "macAssociationNote": "In Finder, select an image file, choose Get Info, select SuwolView under Open with, and choose Change All if needed.",
+    "linuxAssociationNote": "Use your desktop environment's default application settings. If needed, associate files through a .desktop file or xdg-mime.",
     "viewLayout": "View layout",
     "viewer": "Viewer",
     "rendering": "Rendering",
@@ -159,6 +161,18 @@
     "currentVersion": "Current version",
     "latestVersion": "Latest version",
     "updateStatus": "Update status",
+    "lastChecked": "Last checked",
+    "releaseTitle": "Release title",
+    "publishedDate": "Published",
+    "releaseNotes": "Release notes",
+    "automaticUpdateAvailable": "Automatic update package available",
+    "automaticUpdateUnavailable": "Automatic update package unavailable",
+    "manualDownload": "Download manually from the release page.",
+    "upToDate": "You are using the latest version.",
+    "updateAvailableNote": "A new version is available.",
+    "aheadOfRelease": "This app is newer than the latest public release. It may be a development or pre-release build.",
+    "noReleaseNote": "No public release could be found.",
+    "openReleasePage": "Open release page",
     "checkForUpdates": "Check for updates",
     "downloadUpdate": "Download update",
     "installAndRestart": "Install and restart",
@@ -183,6 +197,7 @@
       "downloading": "Downloading",
       "downloaded": "Downloaded",
       "error": "Error"
+      ,"no-release": "No public release"
     }
   },
   "about": {
@@ -228,7 +243,12 @@
     "updateDownloadFailed": "Failed to download the update.",
     "updateNotAvailable": "No update is available to download.",
     "updateNotDownloaded": "No downloaded update is ready to install.",
-    "updateFailed": "The update operation failed."
+    "updateAutomaticUnavailable": "Automatic update packages are not available for this platform.",
+    "updateFailed": "The update operation failed.",
+    "systemSettingsUnsupported": "Windows Default Apps settings are only available on Windows.",
+    "updateCheckTimeout": "The update check timed out.",
+    "updateNoRelease": "No public release was found.",
+    "updateNetworkError": "A network error occurred while checking for updates."
   },
   "formats": {
     "native": "Native",

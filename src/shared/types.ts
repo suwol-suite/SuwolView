@@ -15,6 +15,7 @@ export type ImageViewMode =
 export type ViewMode = ImageViewMode;
 export type ImageFilterPreset = "none" | "smooth" | "extra-smooth" | "sharp";
 export type InterpolationFilter = "nearest" | "bilinear" | "bicubic" | "lanczos";
+export type RuntimePlatform = "win32" | "darwin" | "linux" | (string & {});
 
 export type { AppLanguageSetting, LocaleInfo };
 
@@ -96,7 +97,22 @@ export type UpdateStatus =
   | "not-available"
   | "downloading"
   | "downloaded"
+  | "no-release"
   | "error";
+
+export type UpdateComparison = "up-to-date" | "update-available" | "ahead" | "no-release" | "error" | "disabled";
+
+export interface UpdateReleaseInfo {
+  latestTag?: string;
+  title?: string;
+  publishedAt?: string;
+  body?: string;
+  url?: string;
+  assetNames: string[];
+  hasPlatformUpdateMetadata: boolean;
+  hasPlatformInstallerAsset: boolean;
+  hasDmgAsset?: boolean;
+}
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -106,6 +122,10 @@ export interface UpdateState {
   version?: string;
   latestVersion?: string;
   releaseName?: string;
+  comparison?: UpdateComparison;
+  release?: UpdateReleaseInfo;
+  lastCheckedAt?: string;
+  autoUpdateSupported?: boolean;
   error?: AppError;
   progressPercent?: number;
 }
@@ -142,6 +162,7 @@ export interface AppError {
 
 export interface RuntimeInfo {
   version: string;
+  platform: RuntimePlatform;
   safeMode: boolean;
   isPackaged: boolean;
 }
@@ -194,7 +215,7 @@ export interface SuwolApi {
   toggleFullscreen: () => Promise<boolean>;
   setFullscreen: (fullscreen: boolean) => Promise<boolean>;
   getFullscreenState: () => Promise<boolean>;
-  openSystemSettings: (target: "defaultApps") => Promise<void>;
+  openSystemSettings: (target: "defaultApps") => Promise<AppResult<void>>;
   openReleases: () => Promise<void>;
   copyExecutablePath: () => Promise<string>;
   getRuntimeInfo: () => Promise<RuntimeInfo>;

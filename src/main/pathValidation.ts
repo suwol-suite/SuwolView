@@ -11,7 +11,15 @@ export function ensureInside(rootPath: string, targetPath: string): string {
 }
 
 export function isArchiveEntryPathSafe(entryName: string): boolean {
-  if (!entryName || /^[a-zA-Z]:/.test(entryName) || entryName.startsWith("/") || entryName.startsWith("\\")) {
+  if (
+    !entryName ||
+    entryName.includes("\0") ||
+    /^[a-zA-Z]:/.test(entryName) ||
+    entryName.startsWith("/") ||
+    entryName.startsWith("\\") ||
+    entryName.startsWith("//") ||
+    entryName.startsWith("\\\\")
+  ) {
     return false;
   }
 
@@ -24,5 +32,5 @@ export function normalizeArchiveEntryName(entryName: string): string {
   if (!isArchiveEntryPathSafe(entryName)) {
     throw new Error(`Unsafe archive entry path: ${entryName}`);
   }
-  return entryName.replaceAll("\\", "/");
+  return path.posix.normalize(entryName.replaceAll("\\", "/"));
 }

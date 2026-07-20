@@ -69,6 +69,7 @@ import type {
   ViewMode
 } from "../shared/types";
 import { filterPresetClass, imageRenderingClass, computeImageScale, MAX_IMAGE_SCALE, MIN_IMAGE_SCALE } from "./viewerLayout";
+import { consumeWheelPage, INITIAL_WHEEL_ACCUMULATOR } from "./navigationInput";
 import { isTwoPageMode, selectTwoPageItems, selectWebtoonItems } from "./twoPageMode";
 
 interface ImageSize {
@@ -93,6 +94,7 @@ interface PanelResizeState {
 
 const PANEL_STATE_DELAY_MS = 250;
 const METADATA_REQUEST_DELAY_MS = 250;
+const UPDATE_CHECK_UI_TIMEOUT_MS = 20_000;
 
 const viewModeOptions: readonly ViewMode[] = [
   "original",
@@ -193,6 +195,18 @@ function translatedErrorMessage(error: unknown, t: TFunction): string {
   return formatErrorMessage(error, t);
 }
 
+function isWindowsRuntime(runtimeInfo: RuntimeInfo | undefined): boolean {
+  return runtimeInfo?.platform === "win32";
+}
+
+function isMacRuntime(runtimeInfo: RuntimeInfo | undefined): boolean {
+  return runtimeInfo?.platform === "darwin";
+}
+
+function isLinuxRuntime(runtimeInfo: RuntimeInfo | undefined): boolean {
+  return runtimeInfo?.platform === "linux";
+}
+
 function clampPanelWidth(side: ResizePanelSide, width: number): number {
   if (side === "left") {
     return clamp(width, LEFT_PANEL_MIN_WIDTH, LEFT_PANEL_MAX_WIDTH);
@@ -230,6 +244,30 @@ function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest("button, input, textarea, select, option, [contenteditable='true']"));
 }
 
+function canScrollVertically(element: Element, deltaY: number): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  const style = window.getComputedStyle(element);
+  if (!(style.overflowY === "auto" || style.overflowY === "scroll")) return false;
+  if (element.scrollHeight <= element.clientHeight) return false;
+  return deltaY > 0
+    ? element.scrollTop + element.clientHeight < element.scrollHeight - 1
+    : element.scrollTop > 0;
+}
+
+function findWheelScrollRegion(target: Element | undefined, viewer: Element, deltaY: number): Element | undefined {
+  let current = target;
+  while (current && current !== viewer) {
+    if (
+      current.matches("[data-wheel-scroll-region], select, textarea, input, .side-panel-scroll, .preferences-body") ||
+      canScrollVertically(current, deltaY)
+    ) {
+      return current;
+    }
+    current = current.parentElement ?? undefined;
+  }
+  return undefined;
+}
+
 export function App(): React.ReactElement {
   const { t } = useTranslation();
   const viewerRef = useRef<HTMLDivElement | null>(null);
@@ -245,7 +283,9 @@ export function App(): React.ReactElement {
   const openRequestRef = useRef(0);
   const externalOpenRequestRef = useRef(0);
   const metadataRequestRef = useRef(0);
+  const updateCheckRequestRef = useRef(0);
   const currentItemIdRef = useRef<string | undefined>(undefined);
+  const wheelAccumulatorRef = useRef(INITIAL_WHEEL_ACCUMULATOR);
 
   const [library, setLibrary] = useState<OpenLibraryResult | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -823,12 +863,28 @@ export function App(): React.ReactElement {
         setToolbarMenu(undefined);
         return;
       }
+      if (toolbarMenu) return;
 
       if (preferencesOpen) {
         if (event.key === "Escape") {
           event.preventDefault();
           setPreferencesOpen(false);
         }
+        return;
+      }
+
+      if (
+        (event.key === "PageDown" || event.key === "PageUp") &&
+        !editableTarget &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        viewMode !== "webtoon"
+      ) {
+        event.preventDefault();
+        if (event.key === "PageDown") nextImage();
+        else previousImage();
         return;
       }
 
@@ -888,8 +944,34 @@ export function App(): React.ReactElement {
     setViewMode,
     toolbarMenu,
     toggleFullscreen,
+    viewMode,
     zoomBy
   ]);
+
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!currentItem || viewMode === "webtoon") return;
+    const target = event.target instanceof Element ? event.target : undefined;
+    const scrollRegion = findWheelScrollRegion(target, event.currentTarget, event.deltaY);
+    if (scrollRegion) return;
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.deltaY === 0) return;
+
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      zoomBy(event.deltaY > 0 ? 1 / 1.15 : 1.15);
+      return;
+    }
+
+    event.preventDefault();
+    const decision = consumeWheelPage(
+      wheelAccumulatorRef.current,
+      event.deltaY,
+      event.deltaMode,
+      performance.now()
+    );
+    wheelAccumulatorRef.current = decision.state;
+    if (decision.direction === "next") nextImage();
+    if (decision.direction === "previous") previousImage();
+  };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!currentItem || viewMode === "webtoon") return;
@@ -966,9 +1048,14 @@ export function App(): React.ReactElement {
   }, [t]);
 
   const openWindowsDefaultApps = useCallback(() => {
-    void window.suwol.openSystemSettings("defaultApps").catch((settingsError) => {
-      setError(translatedErrorMessage(settingsError, t));
-    });
+    void window.suwol
+      .openSystemSettings("defaultApps")
+      .then((result) => {
+        if (!result.ok) setError(translatedErrorMessage(result, t));
+      })
+      .catch((settingsError) => {
+        setError(translatedErrorMessage(settingsError, t));
+      });
   }, [t]);
 
   const openReleases = useCallback(() => {
@@ -1056,16 +1143,51 @@ export function App(): React.ReactElement {
       version: current?.version,
       latestVersion: current?.latestVersion,
       releaseName: current?.releaseName,
+      comparison: current?.comparison,
+      release: current?.release,
+      lastCheckedAt: current?.lastCheckedAt,
+      autoUpdateSupported: current?.autoUpdateSupported,
       error: result
     }));
     setError(translatedErrorMessage(result, t));
   }, [t]);
 
   const checkForUpdates = useCallback(() => {
+    const requestId = updateCheckRequestRef.current + 1;
+    updateCheckRequestRef.current = requestId;
     setUpdateStatus((current) => (current ? { ...current, status: "checking", error: undefined } : current));
-    void window.suwol.checkForUpdates().then(applyUpdateResult).catch((updateError) => {
-      setError(translatedErrorMessage(updateError, t));
+    let timeoutId: number | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => reject({ code: "UPDATE_CHECK_TIMEOUT", messageKey: "errors.updateCheckTimeout" }), UPDATE_CHECK_UI_TIMEOUT_MS);
     });
+    void Promise.race([window.suwol.checkForUpdates(), timeout])
+      .then((result) => {
+        if (updateCheckRequestRef.current === requestId) applyUpdateResult(result);
+      })
+      .catch((updateError) => {
+        if (updateCheckRequestRef.current !== requestId) return;
+        const appError = updateError && typeof updateError === "object" && "messageKey" in updateError
+          ? updateError as AppError
+          : { code: "IPC_ERROR", messageKey: "errors.actionFailed" };
+        setUpdateStatus((current) => ({
+          status: "error",
+          supported: current?.supported ?? false,
+          updateAvailable: current?.updateAvailable ?? false,
+          downloaded: current?.downloaded ?? false,
+          version: current?.version,
+          latestVersion: current?.latestVersion,
+          releaseName: current?.releaseName,
+          comparison: "error",
+          release: current?.release,
+          lastCheckedAt: new Date().toISOString(),
+          autoUpdateSupported: current?.autoUpdateSupported,
+          error: appError
+        }));
+        setError(translatedErrorMessage(appError, t));
+      })
+      .finally(() => {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      });
   }, [applyUpdateResult, t]);
 
   const downloadUpdate = useCallback(() => {
@@ -1382,6 +1504,7 @@ export function App(): React.ReactElement {
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onWheel={handleWheel}
           onDragStart={(event) => event.preventDefault()}
         >
           {error && <div className="toast">{error}</div>}
@@ -1436,7 +1559,7 @@ export function App(): React.ReactElement {
           )}
 
           {currentItem && viewMode === "webtoon" && (
-            <div className="webtoon-strip" style={{ "--webtoon-zoom": String(zoom) } as React.CSSProperties}>
+            <div className="webtoon-strip" data-wheel-scroll-region="true" style={{ "--webtoon-zoom": String(zoom) } as React.CSSProperties}>
               {webtoonItems.map((item) => (
                 <img
                   key={item.id}
@@ -1617,10 +1740,13 @@ function PreferencesModal({
   const [activeTab, setActiveTab] = useState<PreferencesTab>("general");
   const updateStatusLabel = t(`updates.status.${updateStatus?.status ?? "idle"}`);
   const updateError = updateStatus?.error ? translatedErrorMessage(updateStatus.error, t) : undefined;
-  const canCheckForUpdates = updateStatus?.supported === true && updateStatus.status !== "checking";
-  const canDownloadUpdate = updateStatus?.supported === true && updateStatus.updateAvailable && updateStatus.status !== "downloading";
+  const canCheckForUpdates = runtimeInfo?.isPackaged === true && updateStatus?.status !== "checking" && updateStatus?.status !== "disabled";
+  const canDownloadUpdate = updateStatus?.supported === true && updateStatus.autoUpdateSupported === true && updateStatus.updateAvailable && updateStatus.status !== "downloading";
   const canInstallUpdate = updateStatus?.supported === true && updateStatus.downloaded;
   const showDeveloperUpdateNotes = runtimeInfo?.isPackaged === false;
+  const showWindowsFileAssociationControls = isWindowsRuntime(runtimeInfo);
+  const showMacFileAssociationInstructions = isMacRuntime(runtimeInfo);
+  const showLinuxFileAssociationInstructions = isLinuxRuntime(runtimeInfo);
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -1796,6 +1922,29 @@ function PreferencesModal({
                 <InfoRow label={t("settings.currentVersion")} value={runtimeInfo?.version ?? t("common.unknown")} />
                 <InfoRow label={t("settings.updateStatus")} value={updateStatusLabel} />
                 {updateStatus?.latestVersion && <InfoRow label={t("settings.latestVersion")} value={updateStatus.latestVersion} />}
+                {updateStatus?.lastCheckedAt && (
+                  <InfoRow label={t("settings.lastChecked")} value={formatDate(updateStatus.lastCheckedAt, i18n.language, t("common.unknown"))} />
+                )}
+                {updateStatus?.comparison === "up-to-date" && <p className="settings-note">{t("settings.upToDate")}</p>}
+                {updateStatus?.comparison === "update-available" && <p className="settings-note">{t("settings.updateAvailableNote")}</p>}
+                {updateStatus?.comparison === "ahead" && <p className="settings-note">{t("settings.aheadOfRelease")}</p>}
+                {updateStatus?.comparison === "no-release" && <p className="settings-note">{t("settings.noReleaseNote")}</p>}
+                {updateStatus?.release?.title && <InfoRow label={t("settings.releaseTitle")} value={updateStatus.release.title} />}
+                {updateStatus?.release?.publishedAt && (
+                  <InfoRow label={t("settings.publishedDate")} value={formatDate(updateStatus.release.publishedAt, i18n.language, t("common.unknown"))} />
+                )}
+                {updateStatus?.updateAvailable && (
+                  <p className="settings-note">
+                    {updateStatus.autoUpdateSupported ? t("settings.automaticUpdateAvailable") : t("settings.automaticUpdateUnavailable")}
+                  </p>
+                )}
+                {updateStatus?.updateAvailable && !updateStatus.autoUpdateSupported && <p className="settings-note">{t("settings.manualDownload")}</p>}
+                {updateStatus?.release?.body && (
+                  <div className="settings-release-notes" data-wheel-scroll-region="true">
+                    <div className="subheading">{t("settings.releaseNotes")}</div>
+                    <pre>{updateStatus.release.body}</pre>
+                  </div>
+                )}
                 {updateError && <p className="settings-note">{updateError}</p>}
                 <label className="settings-check">
                   <input
@@ -1826,6 +1975,12 @@ function PreferencesModal({
                     <Power size={15} />
                     <span>{t("settings.installAndRestart")}</span>
                   </button>
+                  {updateStatus?.release?.url && (
+                    <button className="panel-command-button" onClick={onOpenReleases}>
+                      <ExternalLink size={15} />
+                      <span>{t("settings.openReleasePage")}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -1834,13 +1989,25 @@ function PreferencesModal({
               <div className="settings-content modal-settings-content">
                 <div className="subheading">{t("settings.fileAssociations")}</div>
                 <p className="settings-note">{t("settings.launchArgumentNote")}</p>
-                <p className="settings-note">{t("settings.portableAssociationNote")}</p>
-                <p className="settings-note">{t("settings.installerAssociationNote")}</p>
+                {showWindowsFileAssociationControls && (
+                  <>
+                    <p className="settings-note">{t("settings.portableAssociationNote")}</p>
+                    <p className="settings-note">{t("settings.installerAssociationNote")}</p>
+                  </>
+                )}
+                {showMacFileAssociationInstructions && (
+                  <p className="settings-note">{t("settings.macAssociationNote")}</p>
+                )}
+                {showLinuxFileAssociationInstructions && (
+                  <p className="settings-note">{t("settings.linuxAssociationNote")}</p>
+                )}
                 <div className="settings-actions">
-                  <button className="panel-command-button" onClick={onOpenWindowsDefaultApps}>
-                    <ExternalLink size={15} />
-                    <span>{t("settings.openWindowsDefaultApps")}</span>
-                  </button>
+                  {showWindowsFileAssociationControls && (
+                    <button className="panel-command-button" onClick={onOpenWindowsDefaultApps}>
+                      <ExternalLink size={15} />
+                      <span>{t("settings.openWindowsDefaultApps")}</span>
+                    </button>
+                  )}
                   <button className="panel-command-button" onClick={onOpenReleases}>
                     <ExternalLink size={15} />
                     <span>{t("settings.openReleases")}</span>

@@ -172,7 +172,7 @@ export class DecoderLayer {
     }
 
     const extractedPath = this.cache.archiveEntryPath(item.id, item.cacheKey, item.extension);
-    await extractZipEntry(item.archive.archivePath, item.archive.entryName, extractedPath, this.cache.archiveRoot);
+    await extractZipEntry(item.archive.archivePath, item.archive.entryName, extractedPath, this.cache.archiveRoot, item.archive.entryIndex);
     return extractedPath;
   }
 }

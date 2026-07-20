@@ -6,6 +6,7 @@ export interface InternalLibraryItem extends LibraryItem {
   archive?: {
     archivePath: string;
     entryName: string;
+    entryIndex: number;
   };
 }
 

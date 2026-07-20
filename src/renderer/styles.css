@@ -372,6 +372,23 @@ button {
   cursor: grabbing;
 }
 
+.settings-release-notes {
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.settings-release-notes pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: var(--muted);
+}
+
 .viewer-image {
   user-select: none;
   -webkit-user-select: none;

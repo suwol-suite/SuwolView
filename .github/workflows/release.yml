@@ -188,12 +188,14 @@ jobs:
           GNUPGHOME: ${{ runner.temp }}/gnupg
         run: |
           set -euo pipefail
-          test -n "$GPG_PRIVATE_KEY_B64"
+          umask 077
+          test -n "${GPG_PRIVATE_KEY_B64:-}"
           mkdir -p "$GNUPGHOME"
           chmod 700 "$GNUPGHOME"
-          printf '%s' "$GPG_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/suwol-release-private-key.asc"
-          gpg --batch --import "$RUNNER_TEMP/suwol-release-private-key.asc"
-          rm -f "$RUNNER_TEMP/suwol-release-private-key.asc"
+          GPG_KEY_FILE="$(mktemp "$RUNNER_TEMP/suwol-release-private-key.XXXXXX.asc")"
+          trap 'rm -f -- "$GPG_KEY_FILE"' EXIT
+          printf '%s' "$GPG_PRIVATE_KEY_B64" | base64 --decode > "$GPG_KEY_FILE"
+          gpg --batch --import "$GPG_KEY_FILE"
 
       - name: Sign core checksums
         env:
@@ -201,12 +203,14 @@ jobs:
           GNUPGHOME: ${{ runner.temp }}/gnupg
         run: |
           set -euo pipefail
-          test -n "$GPG_PASSPHRASE"
+          test -n "${GPG_PASSPHRASE:-}"
           cd release-downloads
           printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 \
             --armor --detach-sign checksums.txt
           test -s checksums.txt.asc
+          gpg --verify checksums.txt.asc checksums.txt
+          sha256sum -c checksums.txt
 
       - name: Verify core checksums
         env:
@@ -439,12 +443,14 @@ jobs:
           GNUPGHOME: ${{ runner.temp }}/gnupg
         run: |
           set -euo pipefail
-          test -n "$GPG_PRIVATE_KEY_B64"
+          umask 077
+          test -n "${GPG_PRIVATE_KEY_B64:-}"
           mkdir -p "$GNUPGHOME"
           chmod 700 "$GNUPGHOME"
-          printf '%s' "$GPG_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/suwol-release-private-key.asc"
-          gpg --batch --import "$RUNNER_TEMP/suwol-release-private-key.asc"
-          rm -f "$RUNNER_TEMP/suwol-release-private-key.asc"
+          GPG_KEY_FILE="$(mktemp "$RUNNER_TEMP/suwol-release-private-key.XXXXXX.asc")"
+          trap 'rm -f -- "$GPG_KEY_FILE"' EXIT
+          printf '%s' "$GPG_PRIVATE_KEY_B64" | base64 --decode > "$GPG_KEY_FILE"
+          gpg --batch --import "$GPG_KEY_FILE"
 
       - name: Sign complete checksums
         if: steps.macos_ready.outputs.ready == 'true'
@@ -453,12 +459,14 @@ jobs:
           GNUPGHOME: ${{ runner.temp }}/gnupg
         run: |
           set -euo pipefail
-          test -n "$GPG_PASSPHRASE"
+          test -n "${GPG_PASSPHRASE:-}"
           cd release-assets
           printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 \
             --armor --detach-sign checksums.txt
           test -s checksums.txt.asc
+          gpg --verify checksums.txt.asc checksums.txt
+          sha256sum -c checksums.txt
 
       - name: Verify complete checksums
         if: steps.macos_ready.outputs.ready == 'true'

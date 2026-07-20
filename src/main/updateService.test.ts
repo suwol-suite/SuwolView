@@ -6,6 +6,14 @@ import { resolveUpdateSupport, UpdateService } from "./updateService";
 const currentVersion = "0.2.6";
 const nextVersion = "0.2.7";
 
+function fakeFetch(payload: unknown, status = 200): typeof fetch {
+  return vi.fn(async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => payload
+  })) as unknown as typeof fetch;
+}
+
 class FakeUpdater extends EventEmitter {
   autoDownload = true;
   autoInstallOnAppQuit = true;
@@ -131,7 +139,17 @@ describe("update service support matrix", () => {
       platform: "linux",
       appImagePath: "/tmp/SuwolView.AppImage",
       version: currentVersion,
-      updater: fakeAppUpdater(updater)
+      updater: fakeAppUpdater(updater),
+      fetchImpl: fakeFetch([
+        {
+          tag_name: `v${nextVersion}`,
+          name: `SuwolView ${nextVersion}`,
+          published_at: "2026-07-20T00:00:00.000Z",
+          body: "Release notes",
+          html_url: "https://github.com/suwol-suite/SuwolView/releases/tag/v0.2.7",
+          assets: [{ name: "latest-linux.yml" }, { name: "SuwolView-0.2.7.AppImage" }]
+        }
+      ])
     });
 
     await expect(service.checkForUpdates()).resolves.toMatchObject({
@@ -152,5 +170,62 @@ describe("update service support matrix", () => {
 
     expect(service.installUpdate()).toMatchObject({ ok: true });
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true);
+  });
+
+  it("distinguishes latest, ahead, and missing-release outcomes", async () => {
+    const base = {
+      isPackaged: true,
+      safeMode: false,
+      platform: "win32" as const,
+      version: currentVersion,
+      updater: fakeAppUpdater()
+    };
+    await expect(
+      new UpdateService({ ...base, fetchImpl: fakeFetch([{ tag_name: "v0.2.6", assets: [] }]) }).checkForUpdates()
+    ).resolves.toMatchObject({ ok: true, data: { comparison: "up-to-date", status: "not-available" } });
+    await expect(
+      new UpdateService({ ...base, version: "0.3.0", fetchImpl: fakeFetch([{ tag_name: "v0.2.6", assets: [] }]) }).checkForUpdates()
+    ).resolves.toMatchObject({ ok: true, data: { comparison: "ahead" } });
+    await expect(
+      new UpdateService({ ...base, fetchImpl: fakeFetch([]) }).checkForUpdates()
+    ).resolves.toMatchObject({ ok: true, data: { comparison: "no-release", status: "no-release" } });
+  });
+
+  it("returns a terminal timeout state even when the transport ignores abort", async () => {
+    const fetchImpl = vi.fn(() => new Promise<never>(() => undefined)) as unknown as typeof fetch;
+    await expect(
+      new UpdateService({
+        isPackaged: true,
+        safeMode: false,
+        platform: "darwin",
+        version: currentVersion,
+        timeoutMs: 5,
+        fetchImpl,
+        updater: fakeAppUpdater()
+      }).checkForUpdates()
+    ).resolves.toMatchObject({ ok: false, code: "UPDATE_CHECK_TIMEOUT", messageKey: "errors.updateCheckTimeout" });
+  });
+
+  it("does not create duplicate requests while a check is in flight", async () => {
+    let resolveFetch: ((value: unknown) => void) | undefined;
+    const fetchImpl = vi.fn(
+      () => new Promise((resolve) => {
+        resolveFetch = resolve;
+      })
+    ) as unknown as typeof fetch;
+    const service = new UpdateService({
+      isPackaged: true,
+      safeMode: false,
+      platform: "win32",
+      version: currentVersion,
+      fetchImpl,
+      updater: fakeAppUpdater()
+    });
+    const first = service.checkForUpdates();
+    const second = service.checkForUpdates();
+    expect(first).toBe(second);
+    resolveFetch?.({ ok: true, status: 200, json: async () => [{ tag_name: "v0.2.6", assets: [] }] });
+    await expect(first).resolves.toMatchObject({ ok: true, data: { comparison: "up-to-date" } });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

@@ -150,8 +150,8 @@ export class LibraryManager {
       if (!support) {
         throw new Error(`Unsupported archive entry: ${entry.normalizedName}`);
       }
-      const id = stableHash(`archive:${resolvedArchivePath}:${entry.normalizedName}`);
-      const cacheKey = itemCacheKey([archiveCacheKey, entry.normalizedName, String(entry.sizeBytes ?? 0)]);
+      const id = stableHash(`archive:${resolvedArchivePath}:${entry.entryIndex}:${entry.normalizedName}`);
+      const cacheKey = itemCacheKey([archiveCacheKey, String(entry.entryIndex), entry.normalizedName, String(entry.sizeBytes ?? 0)]);
       return {
         id,
         sourceId: source.id,
@@ -168,7 +168,8 @@ export class LibraryManager {
         cacheKey,
         archive: {
           archivePath: resolvedArchivePath,
-          entryName: entry.normalizedName
+          entryName: entry.normalizedName,
+          entryIndex: entry.entryIndex
         }
       };
     });

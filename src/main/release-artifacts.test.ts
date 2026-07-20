@@ -242,6 +242,11 @@ describe("release artifact policy", () => {
 
     expect(workflow).toContain("GPG_PRIVATE_KEY_B64");
     expect(workflow).toContain("GPG_PASSPHRASE");
+    expect(workflow).toContain("GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}");
+    expect(workflow).toContain("GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}");
+    expect(workflow).toContain("umask 077");
+    expect(workflow).toContain("mktemp \"$RUNNER_TEMP/suwol-release-private-key.");
+    expect(workflow).toContain("trap 'rm -f -- \"$GPG_KEY_FILE\"' EXIT");
     expect(workflow).toContain("prepare:");
     expect(workflow).toContain("windows:");
     expect(workflow).toContain("linux:");
@@ -289,5 +294,11 @@ describe("release artifact policy", () => {
     expect(attachWorkflow).toContain("gh release upload \"$TAG_NAME\"");
     expect(attachWorkflow).toContain("latest-mac.yml");
     expect(attachWorkflow).toContain("checksums.txt.asc");
+    expect(attachWorkflow).toContain("GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}");
+    expect(attachWorkflow).toContain("GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}");
+    expect(attachWorkflow).toContain("umask 077");
+    expect(attachWorkflow).toContain("trap 'rm -f -- \"$GPG_KEY_FILE\"' EXIT");
+    expect(attachWorkflow).toContain("gpg --verify checksums.txt.asc checksums.txt");
+    expect(attachWorkflow).toContain("sha256sum -c checksums.txt");
   });
 });

@@ -26,6 +26,7 @@ import { LibraryManager, toFileUrl } from "./library";
 import { AppLogger, logCrash, logMain, logRenderer, registerProcessErrorHandlers, setActiveLogger } from "./logging";
 import { SettingsStore } from "./settings";
 import { extractLaunchPathArguments } from "./startupOpen";
+import { resolveDefaultAppsRequest } from "./systemSettings";
 import { UpdateService } from "./updateService";
 
 protocol.registerSchemesAsPrivileged([
@@ -441,10 +442,10 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager, u
   });
 
   ipcMain.handle(IPC_CHANNELS.openSystemSettings, async (_event, target: unknown) => {
-    if (target !== "defaultApps" || process.platform !== "win32") {
-      throw createIpcError("SYSTEM_SETTINGS_OPEN_FAILED", "errors.systemSettingsOpenFailed");
-    }
+    const request = resolveDefaultAppsRequest(process.platform, target);
+    if (!request.ok) return request;
     await shell.openExternal("ms-settings:defaultapps");
+    return request;
   });
 
   ipcMain.handle(IPC_CHANNELS.openReleases, async () => {
@@ -459,6 +460,7 @@ function registerIpcHandlers(settings: SettingsStore, library: LibraryManager, u
 
   ipcMain.handle(IPC_CHANNELS.getRuntimeInfo, () => ({
     version: app.getVersion(),
+    platform: process.platform,
     safeMode,
     isPackaged: app.isPackaged
   }));
