@@ -79,9 +79,9 @@ GitHub Releases page.
 
 Recommended downloads:
 
-- Windows: `SuwolView-0.2.10-setup.exe` is recommended. `SuwolView-0.2.10-win-x64.zip` is the portable package.
-- Linux: `SuwolView-0.2.10-linux-x64.AppImage` is recommended. `SuwolView-0.2.10-linux-x64.tar.gz` is the portable package.
-- macOS: `SuwolView-0.2.10-mac-arm64.dmg` is recommended. `SuwolView-0.2.10-mac-arm64.zip` is the update/archive package.
+- Windows: `SuwolView-0.2.11-setup.exe` is recommended. `SuwolView-0.2.11-win-x64.zip` is the portable package.
+- Linux: `SuwolView-0.2.11-linux-x64.AppImage` is recommended. `SuwolView-0.2.11-linux-x64.tar.gz` is the portable package.
+- macOS: `SuwolView-0.2.11-mac-arm64.dmg` is recommended. `SuwolView-0.2.11-mac-arm64.zip` is the update/archive package.
 
 Windows and Linux assets may appear first. macOS Apple Silicon assets can be
 attached later to the same GitHub Release after Apple notarization and stapling
@@ -101,7 +101,7 @@ supported in this release.
 ### One-time recovery for 0.2.7 and 0.2.9
 
 Some older builds can remain on “Checking for updates” because their updater
-request never completed. Install the 0.2.10 package once from the GitHub
+request never completed. Install the 0.2.11 package once from the GitHub
 Releases page. After that, release lookup, platform-package detection, retry,
 download progress, and explicit installation use the fixed update flow.
 
