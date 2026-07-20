@@ -66,9 +66,10 @@ function relaunchArgsForSafeMode(): string[] {
 }
 
 function appIconPath(): string | undefined {
-  const candidates = app.isPackaged
-    ? [path.join(process.resourcesPath, "icon.ico"), path.join(process.resourcesPath, "icon.png")]
-    : [path.join(process.cwd(), "assets", "icon.ico"), path.join(process.cwd(), "assets", "icon.png")];
+  const iconRoot = app.isPackaged ? process.resourcesPath : path.join(process.cwd(), "assets");
+  const candidates = process.platform === "win32"
+    ? [path.join(iconRoot, "icon.ico"), path.join(iconRoot, "icon.png")]
+    : [path.join(iconRoot, "icon.png"), path.join(iconRoot, "icon.ico")];
   return candidates.find((candidate) => existsSync(candidate));
 }
 

@@ -28,7 +28,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "build:renderer": "vite build",
-    "build:main": "vite build --config vite.main.config.ts",
+    "build:main": "vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
     "build": "npm run build:renderer && npm run build:main",
     "dist": "npm run build && electron-builder",
     "dist:win:zip": "npm run build && electron-builder --win zip --publish never",

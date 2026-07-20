@@ -4,10 +4,6 @@ import { defineConfig } from "vite";
 
 const external = [
   "electron",
-  "electron-updater",
-  "exifr",
-  "sharp",
-  "yauzl",
   ...builtinModules,
   ...builtinModules.map((moduleName) => `node:${moduleName}`)
 ];
@@ -15,21 +11,16 @@ const external = [
 export default defineConfig({
   build: {
     outDir: "dist-electron",
-    emptyOutDir: true,
+    emptyOutDir: false,
     minify: false,
     sourcemap: true,
     target: "node22",
     rollupOptions: {
       external,
-      input: {
-        main: resolve(__dirname, "src/main/main.ts"),
-        thumbnailWorker: resolve(__dirname, "src/main/workers/thumbnailWorker.ts"),
-        metadataWorker: resolve(__dirname, "src/main/workers/metadataWorker.ts")
-      },
+      input: resolve(__dirname, "src/preload/preload.ts"),
       output: {
         format: "cjs",
-        entryFileNames: "[name].cjs",
-        chunkFileNames: "chunks/[name]-[hash].cjs"
+        entryFileNames: "preload.cjs"
       }
     }
   }

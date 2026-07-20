@@ -71,6 +71,7 @@ function waitForServer(url, timeoutMs = 30000) {
 }
 
 await run(nodeCommand, [viteCli, "build", "--config", "vite.main.config.ts"]);
+await run(nodeCommand, [viteCli, "build", "--config", "vite.preload.config.ts"]);
 
 const devPort = await findAvailablePort();
 const devServerUrl = `http://127.0.0.1:${devPort}`;
